@@ -1,5 +1,5 @@
 # Merlin
-A Melin project (Come up with a nice name)
+A Melin project (Name is subject to change)
 
 # Step 1: Setup the config file
 Go to ```examples/example_config.ini``` and set your fiducial values, store path etc.
