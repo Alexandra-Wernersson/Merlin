@@ -5,7 +5,8 @@ import numpy as np
 import torch
 from scipy.linalg import solve_triangular
 from scipy import stats
-from training_utils import Network, load_or_compute_pca,make_resampler, apply_cholesky_to_obs, save_predictions
+from pytorch_lightning.callbacks import ModelCheckpoint
+from training_utils import Network, load_or_compute_pca, make_resampler, apply_cholesky_to_obs, save_predictions, load_or_precompute_cholesky, run_coverage_test
 import swyft
 
 
@@ -15,60 +16,6 @@ import swyft
 def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] | {msg}", flush=True)
 
-
-def load_or_precompute_cholesky(store, Lfid, cache_dir):
-
-    os.makedirs(cache_dir, exist_ok=True)
-
-    cells_path = os.path.join(
-        cache_dir,
-        "Cells_chol.npy"
-    )
-
-    noise_path = os.path.join(
-        cache_dir,
-        "noise_chol.npy"
-    )
-
-    if os.path.exists(cells_path) and os.path.exists(noise_path):
-
-        log("Loading cached Cholesky data")
-
-        Cells_chol = np.load(
-            cells_path,
-            mmap_mode="r"
-        )
-
-        noise_chol = np.load(
-            noise_path,
-            mmap_mode="r"
-        )
-
-    else:
-
-        log("Computing Cholesky transform for simulations")
-        assert store['C_ells'].shape[1] == Lfid.shape[0], \
-            "Mismatch between simulation dimension and Lfid"
-
-        Cells_chol = solve_triangular(
-            Lfid,
-            store['C_ells'].T,
-            lower=True,
-            check_finite=False
-        ).T
-
-
-        noise_chol = solve_triangular(
-            Lfid,
-            store['noise'].T,
-            lower=True,
-            check_finite=False
-        ).T
-
-        np.save(cells_path, Cells_chol)
-        np.save(noise_path, noise_chol)
-        log("Saved compressed simulations to cache")
-    return Cells_chol, noise_chol
 
 def build_prior(fiducial, sigmas, n_params, n_samples=500_000, scale=6):
     lower = np.array([fiducial[i] - scale * sigmas[i] for i in range(n_params)])
@@ -95,9 +42,6 @@ if __name__ == "__main__":
     config.read(config_path)
 
     # === Load store ===
-    #store_path = config['SIMULATION']['store_path']
-    #store = swyft.ZarrStore(store_path).get_sample_store()
-    # === Load store ===
 
     store_path = config["SIMULATION"]["store_path"]
     store = swyft.ZarrStore(
@@ -121,14 +65,10 @@ if __name__ == "__main__":
     # === PCA ===
 
     V_proj = load_or_compute_pca(
-
         Cells_chol,
-
         config
 
     )
-    # === Load auxiliary ===
-    Lfid = np.load(config['OBSERVATION']['LFID'])
 
     # === Precompute / load compressed data ===
     cache_dir = config['STORES'].get("cache_dir", "/gpfs/scratch1/shared/awernersson/swyft_cloelib/cache_newgen")
@@ -185,17 +125,28 @@ if __name__ == "__main__":
     )
 
     # === Trainer ===
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=config['STORES']['checkpoint_path'],
+        filename='best_model',
+        save_top_k=1,
+        monitor='val_loss',
+        mode='min',
+    )
+
     trainer = swyft.SwyftTrainer(
         accelerator='gpu',
         devices=1,
         max_epochs=int(config["TRAINING"]["max_epochs"]),
         precision=64,
+        callbacks=[checkpoint_callback],
     )
+
     # === Train ===
     log("Starting training")
     t0 = time.time()
     trainer.fit(network, dm)
     log(f"Training done in {(time.time()-t0)/60:.1f} min")
+    log(f"Best model: {checkpoint_callback.best_model_path}")
 
     # =========================
     # Inference
@@ -230,7 +181,7 @@ if __name__ == "__main__":
         sigmas,
         network.num_params_show,
         n_samples=500_000,
-        scale=6
+        scale=5
     )
 
     # === Inference ===
@@ -242,3 +193,9 @@ if __name__ == "__main__":
     save_predictions(predictions, save_path)
 
     log(f"Saved predictions to {save_path}")
+
+    # === Coverage test ===
+    if config["TRAINING"].get("coverage_test", "False") == "True":
+        log("Running coverage test")
+        coverage_path = config["STORES"]["coverage_plot"]
+        run_coverage_test(trainer, network, store_samples, fiducial, sigmas, coverage_path)
