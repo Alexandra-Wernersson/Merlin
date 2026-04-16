@@ -29,44 +29,24 @@ import cloelib
 print("Loaded from:", cloelib.__file__)
 
 
-import cloelib
 from cloelib.cosmology.camb_cosmology import CAMBBackground, CAMBLinearPerturbations, CAMBNonLinearPerturbations
 from cloelib.cosmology.HMcode2020Emu_cosmology import HMemuLinearPerturbations, HMemuNonLinearPerturbations
 from cloelib.observables.photo import ShearTracer, PositionsTracer
 from cloelib.summary_statistics.angular_two_point import AngularTwoPoint
 from cloelib.summary_statistics.angular_correlation_function_wigner import AngularCorrelationFunctionWigner
 
-from helper_utils import get_positiontracer, get_sheartracer, get_sigmas_bounds
-
 zs = np.linspace(1e-4, 3, 100)
-nz_example = '/home/awernersson/projects/playground/tutorials/observables/nzTabSPV3_euclidlib_format.fits'
-z_nz, nz_example = el.photo.redshift_distributions(nz_example)
+
 
 def normalize_and_resample(nz_dict, z_grid, z_target):
     nz_array = np.vstack([nz / integrate.trapezoid(nz, z_grid) for nz in nz_dict.values()])
     return np.array([np.interp(z_target, z_grid, nz) for nz in nz_array])
 
-my_dndz_pos_norm = normalize_and_resample(nz_example, z_nz, zs)
-my_dndz_she_norm = normalize_and_resample(nz_example, z_nz, zs)
 
-ell_theory = np.array([
-    10.97557970, 13.11709027, 15.67644367, 18.73516773, 22.39069761,
-    26.75947964, 31.98068069, 38.22062129, 45.67807378, 54.59059412,
-    65.24208925, 77.97186088, 93.18541388, 111.36737359, 133.09692347,
-    159.06625492, 190.10261691, 227.19466787, 271.52396925, 324.50262398,
-    387.81825878, 463.48778323, 553.92163814, 662.00057974, 791.16744571,
-    945.53682628, 1130.02613377, 1350.51224608, 1614.01871364, 1928.93949355,
-    2305.30633773, 2755.10835283
-])
+def load_dndz(nz_path):
+    z_nz, nz_dict = el.photo.redshift_distributions(nz_path)
+    return normalize_and_resample(nz_dict, z_nz, zs)
 
-zmean_dr3 = np.array([0.2894, 0.3763, 0.4374, 0.5363, 0.6186, 0.7093,
-                      0.802, 0.8591, 0.976, 1.093, 1.246, 1.489, 1.922])
-
-
-import numpy as np
-import torch
-from torch.distributions import Uniform, Normal
-import swyft
 
 
 # ============================================================
@@ -133,11 +113,9 @@ class PriorSampler:
             loc = torch.tensor(0.0)
 
             if i < len(zmean):
-
                 scale = torch.tensor(0.01)
 
             else:
-
                 scale = torch.tensor(
                     0.002 * (1.0 + zmean[i-len(zmean)])
                 )
@@ -171,6 +149,7 @@ class Simulator(swyft.Simulator):
         upper_bounds,
         zmean,
         ell_theory,
+        dndz,
     ):
 
         super().__init__()
@@ -181,6 +160,7 @@ class Simulator(swyft.Simulator):
         self.fiducial = fiducial
         self.n_bins = n_bins
         self.ells = ell_theory
+        self.dndz = dndz
 
         self.sample_z = PriorSampler(
             lower_bounds,
@@ -279,17 +259,17 @@ class Simulator(swyft.Simulator):
         nuisance["CIA"] = 0.0134
 
         tracer_pos = get_positiontracer(
-
             nuisance,
             self.n_bins,
-            perturbations
+            perturbations,
+            self.dndz,
         )
 
         tracer_she = get_sheartracer(
-
             nuisance,
             self.n_bins,
-            perturbations
+            perturbations,
+            self.dndz,
         )
 
         # --- compute Cls ---
@@ -376,6 +356,60 @@ class Simulator(swyft.Simulator):
             self.get_sample_noise
         )
 
+
+def get_sigmas_bounds(fiducial: list, finv_file: str, N_pars: int):
+    Finv = np.load(finv_file)
+    sigmas = np.sqrt(np.diag(Finv))
+    lower_bounds = [fiducial[i] - 6 * sigmas[i] for i in range(N_pars)]
+    upper_bounds = [fiducial[i] + 6 * sigmas[i] for i in range(N_pars)]
+    return sigmas, lower_bounds, upper_bounds
+
+
+def get_positiontracer(nuis_params, n_pos_bins, perturbations, dndz):
+    pos_nuisance_params = {}
+
+    for i in range(4):
+        pos_nuisance_params[f"b1_photo_poly{i}"] = nuis_params[f"b_g{i+1}"]
+
+    for i in range(n_pos_bins):
+        pos_nuisance_params[f"magnification_bias_{i+1}"] = nuis_params[f"b_mag{i+1}"]
+
+    for i in range(n_pos_bins):
+        pos_nuisance_params[f"dz_pos_{i+1}"] = nuis_params[f"D_{i+1}"]
+
+    return PositionsTracer(
+        perturbations=perturbations,
+        dndz=dndz,
+        z=zs,
+        galaxy_bias_model="poly",
+        nuisance_params=pos_nuisance_params,
+    )
+
+
+def get_sheartracer(nuis_params, n_she_bins, perturbations, dndz):
+    she_nuisance_params = {}
+
+    she_nuisance_params["AIA"] = nuis_params["A_IA"]
+    she_nuisance_params["EtaIA"] = nuis_params["eta_IA"]
+    she_nuisance_params["CIA"] = nuis_params["CIA"]
+
+    for i in range(n_she_bins):
+        she_nuisance_params[f"multiplicative_bias_{i+1}"] = nuis_params[f"m_{i+1}"]
+
+    for i in range(n_she_bins):
+        she_nuisance_params[f"dz_shear_{i+1}"] = nuis_params[f"D_{i+1}"]
+
+    return ShearTracer(
+        perturbations=perturbations,
+        dndz=dndz,
+        z=zs,
+        nuisance_params=she_nuisance_params,
+    )
+
+
+# ============================================================
+# Dead code / legacy (kept for reference)
+# ============================================================
 
 def compute_cls(theta, ells, nuisance_config, zs):
 
