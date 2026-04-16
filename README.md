@@ -44,4 +44,5 @@ Open `Merlin_results.ipynb` to visualize the simulator output and the network pr
 * Make training into one file or something you can choose in the config file so one can run `python train.py examples/new_config.ini cosmo` or `nuisance`
 * Add the heavy 65 parameter case
 * Make the whole pipeline run at once
+* Coverage test addition
 * and more....
