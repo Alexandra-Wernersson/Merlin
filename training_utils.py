@@ -1,9 +1,11 @@
+import os
 import pickle
 import swyft  #the version used is 0.4.6.
 import torch
 import numpy as np
 import pytorch_lightning as pl
 from scipy import stats
+from scipy.linalg import solve_triangular
 
 #V_proj = np.load('./SVD_3x2pt_LCDM_100k_merlin.npy',allow_pickle=True)
 #lenV = V_proj.shape[1]  # number of PCA components
@@ -16,7 +18,7 @@ class Network(swyft.AdamWReduceLROnPlateau,swyft.SwyftModule):
         self.learning_rate = 1e-3
         self.batch_size = 256
         self.num_params_show = 5 # number of parameters of interest, obviously cannot be larger than N_pars
-        self.num_feat_param = 2 # number of features per parameter of interest (2 seem to work well)
+        self.num_feat_param = 4 # number of features per parameter of interest (2 seem to work well)
         self.marginals  = self.get_marginals(self.num_params_show)
         #self.norm =  swyft.networks.OnlineStandardizingLayer(torch.Size([lenV]), epsilon=1e-50)
 #        self.V_proj = V_proj
@@ -48,13 +50,22 @@ class Network(swyft.AdamWReduceLROnPlateau,swyft.SwyftModule):
         )   
 
         #compression network, here one could play with number of layers and neurons
+        # self.sequential = torch.nn.Sequential(
+        #    torch.nn.LazyLinear(256),
+        #    torch.nn.ReLU(),
+        #    torch.nn.LazyLinear(self.num_params_show*self.num_feat_param),
+        #    torch.nn.LazyBatchNorm1d()
+        # )
         self.sequential = torch.nn.Sequential(
-           torch.nn.LazyLinear(256),
-           torch.nn.ReLU(),
-           torch.nn.LazyLinear(self.num_params_show*self.num_feat_param),
-           torch.nn.LazyBatchNorm1d()
+            torch.nn.LazyLinear(512),
+            torch.nn.ReLU(),
+            torch.nn.LazyLinear(256),
+            torch.nn.ReLU(),
+            torch.nn.LazyLinear(128),
+            torch.nn.ReLU(),
+            torch.nn.LazyLinear(self.num_params_show * self.num_feat_param),
+            torch.nn.LazyBatchNorm1d()
         )
-
         #pre-defined MLP to get 1-dim marginals
         self.logratios1 = swyft.LogRatioEstimator_1dim(num_features = self.num_feat_param,
                                                        num_params = self.num_params_show, varnames = 'z',
@@ -382,6 +393,36 @@ def make_prior_samples(fiducial, sigmas, N_pars, num_params_show):
         width.append([10 * sigmas[i]])
     samples = stats.uniform(np.array(lower).flatten(), np.array(width).flatten()).rvs(size=(500_000, num_params_show))
     return swyft.Samples(z=samples)
+
+def load_or_precompute_cholesky(store, Lfid, cache_dir):
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cells_path = os.path.join(cache_dir, "Cells_chol.npy")
+    noise_path = os.path.join(cache_dir, "noise_chol.npy")
+
+    if os.path.exists(cells_path) and os.path.exists(noise_path):
+        print("Loading cached Cholesky data")
+        Cells_chol = np.load(cells_path, mmap_mode="r")
+        noise_chol = np.load(noise_path, mmap_mode="r")
+    else:
+        print("Computing Cholesky transform (this is slow, done once)")
+        assert store['C_ells'].shape[1] == Lfid.shape[0], \
+            "Mismatch between simulation dimension and Lfid"
+
+        Cells_chol = solve_triangular(
+            Lfid, store['C_ells'].T, lower=True, check_finite=False
+        ).T
+
+        noise_chol = solve_triangular(
+            Lfid, store['noise'].T, lower=True, check_finite=False
+        ).T
+
+        np.save(cells_path, Cells_chol)
+        np.save(noise_path, noise_chol)
+        print("Saved Cholesky-transformed simulations to cache")
+
+    return Cells_chol, noise_chol
+
 
 def save_predictions(predictions, save_path):
     with open(save_path, "wb") as f:
