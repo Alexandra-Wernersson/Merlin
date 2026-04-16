@@ -42,17 +42,8 @@ if __name__ == "__main__":
     config = configparser.ConfigParser()
     config.read(config_path)
 
-
     # --------------------------------------------------------
-    # 2. paths
-    # --------------------------------------------------------
-
-    store_path = config["SIMULATION"]["store_path"]
-    os.makedirs(store_path, exist_ok=True)
-
-
-    # --------------------------------------------------------
-    # 3. load inputs
+    # 2. load inputs
     # --------------------------------------------------------
 
     log("Loading cosmology inputs")
@@ -62,7 +53,7 @@ if __name__ == "__main__":
     ]
 
     covmat = np.load(
-        config["FINV"]["covmat"]
+        config["AUX FILES"]["covmat"]
     )["Gauss"]
 
 
@@ -78,18 +69,18 @@ if __name__ == "__main__":
         config["AUX FILES"]["zmean_file"]
     )
 
-    if config["FINV"]["run_fisher"] == "True":
+#    if config["FINV"]["run_fisher"] == "True":
+#
+  #      log("Running Fisher analysis")
 
-        log("Running Fisher analysis")
+ #       Finv, sigmas = fisher_analysis(config)
 
-        Finv, sigmas = fisher_analysis(config)
+   #     np.save(config["FINV"]["finv_file"], Finv)
 
-        np.save(config["FINV"]["finv_file"], Finv)
-
-        log("Saved Fisher matrix")
-        log(config["FINV"]["finv_file"])
+    #    log("Saved Fisher matrix")
+     #   log(config["FINV"]["finv_file"])
     # --------------------------------------------------------
-    # 4. prior bounds
+    # 3. prior bounds
     # --------------------------------------------------------
 
     log("Computing prior bounds")
@@ -102,7 +93,7 @@ if __name__ == "__main__":
 
 
     # --------------------------------------------------------
-    # 5. build simulator
+    # 4. build simulator
     # --------------------------------------------------------
 
     log("Initializing simulator")
@@ -119,7 +110,7 @@ if __name__ == "__main__":
 
 
     # --------------------------------------------------------
-    # 6. generate observation
+    # 5. generate observation
     # --------------------------------------------------------
 
     log("Generating observation")
@@ -127,7 +118,7 @@ if __name__ == "__main__":
 
 
     # --------------------------------------------------------
-    # 7. rotate observation using Cholesky
+    # 6. rotate observation using Cholesky
     # --------------------------------------------------------
 
     log("Applying Cholesky rotation")
@@ -150,12 +141,6 @@ if __name__ == "__main__":
     ).T
 
 
-    obs_chol = dict(
-        C_ells=oCells_chol,
-        noise=onoise_chol
-    )
-
-
     # noiseless version used for inference
     obs_chol_noiseless = dict(
         C_ells=oCells_chol,
@@ -164,23 +149,18 @@ if __name__ == "__main__":
 
 
     # --------------------------------------------------------
-    # 8. save outputs
+    # 7. save outputs
     # --------------------------------------------------------
 
     log("Saving outputs")
     obs_path = config["OBSERVATION"]["OBS"]
-    obs_chol_path = config["OBSERVATION"]["OBS_CHOLESKY"]
     obs_chol_noiseless_path = config["OBSERVATION"]["OBS_CHOLESKY_NOISELESS"]
     Lfid_path = config["OBSERVATION"]["LFID"]
-    metadata_path = config["OBSERVATION"]["metadata_path"]
 
     for p in [
         obs_path,
-        obs_chol_path,
         obs_chol_noiseless_path,
         Lfid_path,
-        metadata_path
-
     ]:
 
         os.makedirs(
@@ -195,12 +175,6 @@ if __name__ == "__main__":
         obs
     )
 
-    # save rotated observation
-    np.save(
-        obs_chol_path,
-        obs_chol
-    )
-
     # save noiseless rotated observation
     np.save(
         obs_chol_noiseless_path,
@@ -213,17 +187,7 @@ if __name__ == "__main__":
         Lfid
     )
 
-    # save metadata
-    np.savez(
-        metadata_path,
-        fiducial=fiducial,
-        n_bins=n_bins
-    )
-
-
     log("Saved:")
     log(obs_path)
-    log(obs_chol_path)
     log(obs_chol_noiseless_path)
     log(Lfid_path)
-    log(metadata_path)
