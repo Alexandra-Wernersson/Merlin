@@ -69,16 +69,16 @@ if __name__ == "__main__":
         config["AUX FILES"]["zmean_file"]
     )
 
-#    if config["FINV"]["run_fisher"] == "True":
-#
-  #      log("Running Fisher analysis")
+    if config["FINV"]["run_fisher"] == "True":
 
- #       Finv, sigmas = fisher_analysis(config)
+        log("Running Fisher analysis")
 
-   #     np.save(config["FINV"]["finv_file"], Finv)
+        Finv, sigmas = fisher_analysis(config)
 
-    #    log("Saved Fisher matrix")
-     #   log(config["FINV"]["finv_file"])
+        np.save(config["FINV"]["finv_file"], Finv)
+
+        log("Saved Fisher matrix")
+        log(config["FINV"]["finv_file"])
     # --------------------------------------------------------
     # 3. prior bounds
     # --------------------------------------------------------
