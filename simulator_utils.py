@@ -351,8 +351,8 @@ class Simulator(swyft.Simulator):
 def get_sigmas_bounds(fiducial: list, finv_file: str, N_pars: int):
     Finv = np.load(finv_file)
     sigmas = np.sqrt(np.diag(Finv))
-    lower_bounds = [fiducial[i] - 6 * sigmas[i] for i in range(N_pars)]
-    upper_bounds = [fiducial[i] + 6 * sigmas[i] for i in range(N_pars)]
+    lower_bounds = [fiducial[i] - 5 * sigmas[i] for i in range(N_pars)]
+    upper_bounds = [fiducial[i] + 5 * sigmas[i] for i in range(N_pars)]
     return sigmas, lower_bounds, upper_bounds
 
 
@@ -458,19 +458,12 @@ class FisherSimulator:
         upper_bounds = np.load("upper_bounds.npy")
 
         self.sim = Simulator(
-
             fiducial=self.fiducial,
-
             covmat=self.cov,
-
             n_bins=self.n_bins,
-
             lower_bounds=lower_bounds,
-
             upper_bounds=upper_bounds,
-
             zmean=zmean_dr3,
-
             ell_theory=self.ells
         )
 
