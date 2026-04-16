@@ -87,11 +87,6 @@ PARAMS = (
 N_COSMO = len(COSMO_PARAMS)
 NUISANCE_KEYS = PARAMS[N_COSMO:]
 
-
-# ============================================================
-# Prior sampler
-# ============================================================
-
 class PriorSampler:
 
     def __init__(self, lower_bounds, upper_bounds, zmean):
@@ -133,10 +128,6 @@ class PriorSampler:
 
         return torch.stack(samples, dim=-1).numpy()
 
-
-# ============================================================
-# Simulator
-# ============================================================
 
 class Simulator(swyft.Simulator):
 
