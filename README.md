@@ -26,7 +26,7 @@ Look through ```merlin_results.ipynb``` to vizualize the simulator output and th
 # To Do
 
 * Make training into one file or something you can choose in the config file so one can run ```python train.py examples/example_config.ini 'cosmo'/'nuisance'``` or similar.
-* Create plotting notebook and plotting script.
+* Add model checkpoint callback feature
 * Add the heavy 65 parameter case
 * Make the whole pipeline run at once
 * and more....
