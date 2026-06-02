@@ -1,18 +1,17 @@
-"""
-I/O helpers for saving and loading predictions and auxiliary files.
-"""
-
 import pickle
 import numpy as np
 
 
-def save_predictions(predictions, save_path):
-    """Pickle *predictions* to *save_path*."""
-    with open(save_path, "wb") as f:
+def save_predictions(predictions, path):
+    with open(path, "wb") as f:
         pickle.dump(predictions, f)
-    print(f"Predictions saved to {save_path}")
+    print(f"Predictions saved to {path}")
 
 
-def load_file(file_path):
-    """Load a ``.npy`` / ``.npz`` file (with pickle support)."""
-    return np.load(file_path, allow_pickle=True)
+def load_predictions(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+
+def load_file(path, **kwargs):
+    return np.load(path, allow_pickle=True, **kwargs)
