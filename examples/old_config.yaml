@@ -107,10 +107,10 @@ TRAINING:
 INFERENCE:
   params: COSMO   # group name from PARAM_GROUPS or a list e.g. [H0, A_IA, eta_IA]
 
-SCALE CUTS: None 
-  #SHE_SHE: 1500   # ell_max for WL auto-spectra
-    #POS_SHE: 750    # ell_max for GGL cross-spectra
-    #POS_POS: 750    # ell_max for GCph auto-spectra
+SCALE CUTS:  
+    SHE_SHE: 1500   # ell_max for WL spectra
+    POS_SHE: 750    # ell_max for GGL cross-spectra
+    POS_POS: 750    # ell_max for GCph spectra
 
 DEVICE PARAMS:
   device: gpu
