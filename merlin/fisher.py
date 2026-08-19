@@ -1,12 +1,30 @@
+import time
+
 import numpy as np
 
+from .io import format_duration, load_array
+from .priors import resolve_priors
 from .simulator import Simulator
 from .tracers import load_dndz
 
 
 def run_fisher(config, eps=1e-2):
     """
-    Compute the Fisher matrix via finite differences and save Finv.
+    Compute the Fisher matrix via finite differences over every VARIED
+    parameter in config["PRIORS"], combine it with each "normal"-kind
+    parameter's own Gaussian-prior curvature (see below), and save Finv to
+    config["PRIORS"]["finv_file"] as an .npz containing Finv, varied_indices,
+    and varied_names (the latter two let build_simulator/load_fisher_sigmas
+    detect a stale Finv if PRIORS's fixed/varied set changed since this was
+    last run).
+
+    Finv is the inverse of the POSTERIOR (not just likelihood) Fisher matrix:
+    likelihood information (J^T Cinv J) plus each "normal"-kind parameter's
+    own prior precision (1/sigma^2) on the diagonal, i.e. what you'd get by
+    Laplace-approximating likelihood x prior. Without the prior term,
+    marginalizing over other Gaussian-prior parameters overstates how freely
+    they can vary to compensate a shift in parameter a, inflating a's
+    marginalized sigma.
 
     Parameters
     ----------
@@ -18,45 +36,59 @@ def run_fisher(config, eps=1e-2):
 
     Returns
     -------
-    Finv : np.ndarray, shape (N_pars, N_pars)
-    sigmas : np.ndarray, shape (N_pars,)
+    Finv   : np.ndarray, shape (len(varied_indices), len(varied_indices))
+    sigmas : np.ndarray, shape (len(varied_indices),) — sigmas[k] corresponds
+             to varied_indices[k], NOT the full PARAMS vector.
     """
-    fiducial = list(config["FIDUCIAL VALUES"].values())
-    N_pars   = config["FINV"]["N_pars"]
-
-    # Placeholder bounds — prior sampler is never called during Fisher
-    lower_bounds = [0.0] * N_pars
-    upper_bounds = [1.0] * N_pars
+    fiducial, specs, varied_names, varied_indices = resolve_priors(config)
 
     sim = Simulator(
         fiducial=fiducial,
-        covmat=np.load(config["FINV"]["covmat"])["Gauss"],
-        n_bins=config["FINV"]["Nbin_z"],
-        lower_bounds=lower_bounds,
-        upper_bounds=upper_bounds,
-        zmean=np.load(config["AUX FILES"]["zmean_file"]),
-        ell_theory=np.load(config["AUX FILES"]["ell_file"]),
-        dndz=load_dndz(config["FINV"]["nz_example"]),
+        covmat=np.load(config["PRIORS"]["covmat_Fisher"])["Gauss"],
+        n_bins=config["AUX FILES"]["Nbin_z"],
+        specs=specs,
+        ell_theory=load_array(config["AUX FILES"]["ell"]),
+        dndz=load_dndz(config["PRIORS"]["nz_Fisher"]),
     )
 
-    fiducial = np.array(fiducial)
-    N_pars   = config["FINV"]["N_pars"]
-    inv_cov  = np.linalg.inv(sim.Lfid @ sim.Lfid.T)
+    fiducial_arr = np.array(fiducial)
+    inv_cov = np.linalg.inv(sim.Lfid @ sim.Lfid.T)
 
-    print(f"Computing {N_pars} derivatives...")
-    derivatives = [_finite_difference(sim, fiducial, i, eps) for i in range(N_pars)]
+    print(f"Computing {len(varied_indices)} derivatives "
+          f"({len(fiducial) - len(varied_indices)} of {len(fiducial)} parameters fixed)...")
+    t0 = time.time()
+    derivatives = [_finite_difference(sim, fiducial_arr, i, eps) for i in varied_indices]
+    elapsed = time.time() - t0
+    print(f"Fisher derivatives computed in {format_duration(elapsed)} "
+          f"({2 * len(varied_indices)} model evaluations, single process)")
 
-    F = np.zeros((N_pars, N_pars))
-    for i in range(N_pars):
-        for j in range(i, N_pars):
-            F[i, j] = derivatives[i] @ inv_cov @ derivatives[j]
-            F[j, i] = F[i, j]
+    n = len(varied_indices)
+    F = np.zeros((n, n))
+    for a in range(n):
+        for b in range(a, n):
+            F[a, b] = derivatives[a] @ inv_cov @ derivatives[b]
+            F[b, a] = F[a, b]
+
+    # F above is LIKELIHOOD-only Fisher information (J^T Cinv J). Add each
+    # "normal"-kind parameter's own prior curvature (1/sigma^2) to the
+    # diagonal before inverting -- the standard combination of a Gaussian
+    # likelihood with an independent Gaussian prior -- since without it,
+    # marginalizing implicitly treats every other Gaussian-prior parameter
+    # (e.g. m_i, D_j) as completely unconstrained, overstating how much they
+    # can compensate for a shift in parameter a and inflating its
+    # marginalized sigma. "uniform"-kind parameters have no curvature to add
+    # (flat prior).
+    for k, i in enumerate(varied_indices):
+        if specs[i].kind == "normal":
+            F[k, k] += 1.0 / specs[i].sigma ** 2
 
     Finv   = np.linalg.inv(F)
     sigmas = np.sqrt(np.diag(Finv))
 
-    finv_path = config["FINV"]["finv_file"]
-    np.save(finv_path, Finv)
+    finv_path = config["PRIORS"]["finv_file"]
+    np.savez(finv_path, Finv=Finv,
+              varied_indices=np.array(varied_indices),
+              varied_names=np.array(varied_names))
     print(f"Saved Finv to {finv_path}")
 
     return Finv, sigmas

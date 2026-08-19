@@ -1,5 +1,7 @@
 import argparse
+import shutil
 import sys
+from pathlib import Path
 
 from .config import load_config
 from .simulate import simulate
@@ -30,6 +32,9 @@ def main():
         if args.n_workers:
             config["SIMULATION"]["n_workers"] = args.n_workers
         simulate(config)
+        if "RUN" in config:
+            run_dir = Path(config["RUN"]["run_dir"])
+            shutil.copy(args.config, run_dir / "config.yaml")
 
 
 if __name__ == "__main__":

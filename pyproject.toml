@@ -17,16 +17,18 @@ dependencies = [
     "psutil",
     "matplotlib",
     "zarr",
-    "swyft>=0.4.6",
+    "swyft>=0.4.5",
     "pytorch-lightning",
     "euclidlib",
     "cloelib",
+    "getdist",
+    "pandas",
 ]
 
 [project.scripts]
-merlin-simulate     = "merlin.cli.simulate:main"
-merlin-train        = "merlin.cli.train:main"
-merlin-generate-obs = "merlin.cli.generate_obs:main"
+merlin-simulate = "merlin.cli.simulate:main"
+merlin-train    = "merlin.cli.train:main"
+merlin-plot     = "merlin.cli.plot:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["merlin"]

@@ -9,3 +9,6 @@ __pycache__/
 *.swp
 *.swo
 *.swn
+output/
+jobs/logs/
+tests/
