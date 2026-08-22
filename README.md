@@ -29,51 +29,11 @@ pip install .          # or `pip install -e .` for an editable install
 This also registers the `merlin-simulate`, `merlin-train`, and `merlin-plot`
 console scripts (see `pyproject.toml`).
 
-## Repository structure
-
-```
-merlin/
-├── config.py            load_config; RUN.run_dir / train_<N> path derivation
-├── params.py             canonical parameter registry (PARAMS, PARAM_GROUPS,
-│                         PARAM_LABELS, MCMC_KEY_MAP)
-├── priors.py              PRIORS section parsing/validation, Fisher-bounds overlay
-├── tracers.py              cloelib/euclidlib tracer + n(z) loading
-├── simulator.py             swyft Simulator, PriorSampler, build_simulator factory,
-│                            sample_correlated_noise
-├── fisher.py                 Fisher matrix (finite differences)
-├── observation.py             fiducial observation generation + Cholesky whitening
-├── simulate.py                 fills the Zarr simulation store (parallel joblib)
-├── preprocessing.py             Cholesky whitening, scale cuts, probe selection, PCA
-├── network.py                    Network architecture (swyft.SwyftModule)
-├── train.py                       training loop
-├── inference.py                    infer / predict_from_checkpoint
-├── coverage.py                      coverage/calibration test
-├── plotting.py                       corner/coverage/loss plots (merlin-plot backend)
-├── swyft_patches.py                   small monkeypatches to swyft's corner-plot internals
-├── io.py                               misc array/pickle IO helpers
-└── cli/                                 merlin-simulate / merlin-train / merlin-plot entry points
-
-notebooks/
-├── pipeline_walkthrough.ipynb   interactive tour: config → simulator → observation →
-│                                 store preprocessing → PCA → training → coverage
-└── corner_plot.ipynb             load a trained checkpoint, plot a corner plot
-                                    (optionally against an MCMC/nested-sampling chain)
-
-input/
-└── config_example.yaml           template config — copy and edit this
-
-aux_files/                        input covariance matrix / n(z) FITS file (not run-generated)
-
-jobs/                              example SLURM batch scripts (see "Running on a cluster" below)
-├── submit_simulate.sh              merlin-simulate — CPU-only
-└── submit_train.sh                 merlin-train — 1 GPU
-```
-
 ## Usage
 
 ### Step 1: Setup the config file
-Copy `input/config_example.yaml` and edit it — see "Config reference" below
-for what each section does. `RUN.run_dir` is the only path you need to set by
+Copy `input/config_example.yaml` and edit it — its inline comments explain
+what each section does. `RUN.run_dir` is the only path you need to set by
 hand; everything else is auto-derived under it (see "Output directory
 layout").
 
@@ -177,60 +137,3 @@ scale cuts, even a different observation to evaluate against).
 
 Predictions are never saved to disk — they're cheap to recompute from a
 saved checkpoint whenever needed (`predict_from_checkpoint`).
-
-## Config reference
-
-See `input/config_example.yaml` for a fully worked example with inline
-comments; this is a brief summary of what each section controls.
-
-- **`RUN`** — `run_dir`: the only path you set by hand (see "Output directory
-  layout" above).
-- **`FIDUCIAL VALUES`** — the 50 cosmological + nuisance parameters, keyed by
-  canonical name (`params.PARAMS`) — matched by name, not position, so order
-  doesn't matter. Used as the fiducial cosmology for the mock observation and
-  Fisher analysis.
-- **`PRIORS`** — per-parameter prior specification, one entry per name in
-  `FIDUCIAL VALUES`: `{type: fixed}` (held at its fiducial value, never
-  sampled), `{type: uniform, lower, upper}`, or `{type: normal, mean, sigma}`.
-  `use_Fisher_priors: true` runs a Fisher analysis and overwrites every
-  `uniform` entry's bounds with `fiducial ± sigma_scale·σ` (`normal` entries
-  are left as configured). `covmat_Fisher`/`nz_Fisher` are used only for that
-  Fisher computation, independent of `AUX FILES.covmat`/`nz`.
-- **`MOCK_OBS`** — where the fiducial observation comes from.
-  `generate_from_fiducial: true` (default) simulates it from the fiducial
-  cosmology; `add_noise_fid_obs` controls whether a noise realization is
-  folded in. `generate_from_fiducial: false` instead loads an already-noisy
-  data vector from the `.npy` array at `path` (e.g. real data).
-- **`AUX FILES`** — `covmat`/`nz`/`ell`/`Nbin_z`: the physics inputs used for
-  simulation, observation generation, and preprocessing (everything except
-  the Fisher computation itself, which uses `PRIORS.covmat_Fisher`/`nz_Fisher`
-  instead). `ell` accepts either a file path or an inline list.
-- **`SIMULATION`** — `N_sims`, `batch_size`, `chunk_size`, `n_workers` for
-  `merlin-simulate`'s parallel store-filling loop.
-- **`ANALYSIS VARIANTS`** — modifications applied at *preprocessing* time
-  (`merlin-train`/`merlin-plot`), never baked into the store, so different
-  `train_<N>` runs can vary them independently without re-simulating:
-  - `SCALE CUTS` (`SHE_SHE`/`POS_SHE`/`POS_POS`) — per-probe ℓ_max cutoffs;
-    zeroes out ell bins above the threshold.
-  - `regenerate_noise_samples` — if `true`, discards the store's own noise
-    samples and draws fresh ones from the *current* `AUX FILES.covmat`
-    instead (e.g. to retrain against a different noise covariance than the
-    one active at simulation time, without re-running the expensive physics).
-  - `train_on_data` (`3x2pt`/`2x2pt`/`WL`) — which probe block(s) of the data
-    vector to train on; unlike `SCALE CUTS`, this actually shrinks the data
-    fed into PCA/the network rather than masking it. `2x2pt` here means
-    GGL+GCph (3x2pt minus WL), this project's own convention.
-- **`PCA`** — `recompute_pca`, `q` (max components), `variance_cut` (percent
-  variance threshold for keeping a component).
-- **`NETWORK`** — architecture: `hidden_feat_compress` (compression-MLP
-  hidden-layer sizes), `num_feat_param`, `num_blocks_ratios`,
-  `hidden_feat_ratios`, `dropout_ratios` (swyft ratio-estimator settings).
-- **`TRAINING`** — `learning_rate`, `batch_size`, `num_workers`, `max_epochs`,
-  `early_stopping` (patience), `val_fraction`, `accelerator` (`auto`/`gpu`/
-  `cpu`), and `params_to_infer` (a `PARAM_GROUPS` name like `COSMO`, or an
-  explicit list) — which parameters the network is trained to produce
-  posteriors for; must be a subset of the parameters varied in `PRIORS`.
-- **`PLOTTING`** — `mcmc_path`: optional Nautilus-format nested-sampling
-  chain `.npz` to overlay on `merlin-plot --mode corner` / `corner_plot.ipynb`
-  plots. `null` (default) skips it. `smooth_swyft`/`nbins_swyft`: swyft
-  smoothing and bin count for Merlin's corner-plot density estimate.
