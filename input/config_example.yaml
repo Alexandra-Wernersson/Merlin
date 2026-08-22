@@ -226,11 +226,8 @@ CLOELIB_SETTINGS:
     945.53682628, 1130.02613377, 1350.51224608, 1614.01871364, 1928.93949355,
     2305.30633773, 2755.10835283
   ]
-  # Optional: also compute/store derived (not sampled) cosmology quantities
-  # per simulation, as a "derived" node alongside C_ells/noise -- selectable
-  # in TRAINING.params_to_infer like any other parameter (e.g. [H0, sigma8]),
-  # or via the "DERIVED" group name for all three. null (default) -> none.
-  # Accepts "sigma8", "Omega_m", "S8" -- one name, or a list of any subset.
+  # Optional: compute/store derived quantities, selectable in
+  # TRAINING.params_to_infer. null (default) or any of/list of sigma8, Omega_m, S8.
   add_derived: null
 
 

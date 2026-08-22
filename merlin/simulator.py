@@ -15,12 +15,7 @@ from .tracers import load_dndz, get_position_tracer, get_shear_tracer
 
 @contextlib.contextmanager
 def _suppress_stdout():
-    """
-    HMcode2020Emu (via cloelib) prints its install path on first import per
-    process, plus "Loading .../.. loaded in memory." on every emulator
-    construction — plain print() calls with no verbosity flag exposed through
-    cloelib's own wrapper, so silence stdout around the calls that trigger them.
-    """
+    """Silence stdout: cloelib's HMcode2020Emu prints unconditionally on import/construction, with no verbosity flag to suppress it."""
     with open(os.devnull, "w") as devnull:
         with contextlib.redirect_stdout(devnull):
             yield
@@ -31,12 +26,7 @@ def _suppress_stdout():
 # ============================================================
 
 class _Constant:
-    """
-    Degenerate 'distribution' for a fixed parameter: always returns its fixed
-    value, broadcast to the requested sample shape. Duck-types the
-    torch.distributions .sample(shape) interface so PriorSampler can treat
-    fixed and varied entries uniformly, with no special-casing in __call__.
-    """
+    """Degenerate 'distribution' for a fixed parameter: .sample(shape) always returns its value, broadcast. Duck-types torch.distributions so PriorSampler treats fixed/varied entries uniformly."""
 
     def __init__(self, value):
         self.value = torch.tensor(float(value))
@@ -48,18 +38,14 @@ class _Constant:
 class _TruncatedNormalRejection:
     """
     Normal(mean, sigma) restricted to [lower, upper] (see
-    priors.apply_fisher_bounds — used for the m_i/D_i-style nuisance
-    parameters when PRIORS.use_Fisher_priors narrows their support to
-    fiducial +/- sigma_scale*sigma_Fisher, same as it already does for
-    uniform-type parameters). Duck-types the torch.distributions
-    .sample(shape) interface like _Constant.
+    priors.apply_fisher_bounds, used when PRIORS.use_Fisher_priors narrows
+    m_i/D_i-style nuisance parameters to fiducial +/- sigma_scale*sigma_Fisher).
+    Duck-types torch.distributions .sample(shape) like _Constant.
 
-    Sampled via rejection sampling -- draw from the untruncated
-    Normal(mean, sigma) and discard points outside [lower, upper] -- rather
-    than scipy.stats.truncnorm's exact inverse-CDF, which was found to
-    produce systematically overconfident/biased trained posteriors for
-    Fisher-truncated Gaussian-type priors in this pipeline despite the two
-    methods targeting the same distribution.
+    Uses rejection sampling (draw untruncated Normal, discard outside
+    bounds) rather than scipy.stats.truncnorm's inverse-CDF, which produces
+    systematically overconfident/biased trained posteriors here despite
+    targeting the same distribution.
     """
 
     def __init__(self, mean, sigma, lower, upper):
@@ -83,14 +69,11 @@ class _TruncatedNormalRejection:
 class PriorSampler:
     """
     Prior over the full PARAMS vector, one entry per parameter in PARAMS
-    order (see priors.resolve_priors): Uniform, Normal, or a fixed constant,
-    per config["PRIORS"]. Fixed entries ARE included in sample_z's output
-    (as constants) — the sampled "z" vector is always the full N_pars length,
-    positionally matching PARAMS, since get_sample_Cls indexes into it
-    positionally (z[0]=H0, ..., NUISANCE_KEYS = PARAMS[N_COSMO:]).
-    Network.forward's z_full[..., self.param_indices] is unaffected since
-    param_indices only ever indexes VARIED positions (enforced by
-    priors.resolve_inference_params).
+    order: Uniform, Normal, or a fixed constant, per config["PRIORS"]. Fixed
+    entries are included in sample_z's output as constants — "z" is always
+    the full N_pars length, positionally matching PARAMS, since
+    get_sample_Cls indexes into it positionally (z[0]=H0, ...,
+    NUISANCE_KEYS = PARAMS[N_COSMO:]).
     """
 
     def __init__(self, specs, fiducial):
@@ -117,18 +100,13 @@ def sample_correlated_noise(Lfid, shape=()):
     Draw correlated Gaussian noise realization(s) with covariance
     Lfid @ Lfid.T.
 
-    shape=() (default): a single n_data-length vector — mathematically
-    Lfid @ randn(n_data), computed here as the equivalent randn(n_data) @
-    Lfid.T (identical for a 1D vector: (Lfid @ v)_i == (v @ Lfid.T)_i for
-    all i). Used by Simulator.get_sample_noise, matching swyft's per-sample
-    DAG sampling convention (one noise draw per graph.node call).
-    shape=(n,): a batch of n independent draws in a single vectorized
-    matmul, shape (n, n_data) — used by preprocessing.preprocess's
-    ANALYSIS_VARIANTS.regenerate_noise_samples, for the same reason
-    inference.infer batches sim.sample_z instead of looping swyft's own
-    per-sample sample(). Both call sites go through this one function so
-    "regenerate_noise_samples" is provably the same draw swyft's own
-    Simulator.build graph would produce, batched.
+    shape=() (default): a single n_data-length vector, randn(n_data) @
+    Lfid.T (equivalent to Lfid @ randn(n_data) for a 1D vector). Used by
+    Simulator.get_sample_noise, one draw per graph.node call.
+    shape=(n,): a batch of n draws via one vectorized matmul, shape
+    (n, n_data) — used by preprocessing.preprocess's
+    ANALYSIS_VARIANTS.regenerate_noise_samples. Both call sites share this
+    function so batched regeneration matches the simulator's own draw exactly.
     """
     z = np.random.normal(size=(*shape, Lfid.shape[0]))
     return z @ Lfid.T
@@ -163,7 +141,7 @@ class Simulator(swyft.Simulator):
             for i in range(1, self.n_bins + 1)
             for j in range(i, self.n_bins + 1)
         ]
-        # IMPORTANT: (j, i) not (i, j), this reflects the convention of latest cloelib version
+        # (j, i) not (i, j): matches cloelib's own key convention.
         self.GGL_keys = [
             ("POS", "SHE", j, i)
             for i in range(1, self.n_bins + 1)
@@ -186,15 +164,10 @@ class Simulator(swyft.Simulator):
 
         nuisance = dict(zip(NUISANCE_KEYS, z[N_COSMO:]))
 
-        # N_mnu is internally fixed to 1 (not a config-exposed parameter).
-        # z's entries are numpy.float32 scalars (PriorSampler stacks torch
-        # tensors, whose default dtype is float32, then .numpy()'s the
-        # result) -- cast explicitly to plain Python float. cloelib's
-        # CAMBBackground._set_neutrino_parameters runtime-checks
-        # isinstance(mnu, float) (numpy.float32 fails that check, unlike
-        # numpy.float64, and isn't a np.ndarray/Sequence either -- raises
-        # TypeError otherwise); casting the rest defensively too, since nothing
-        # here should ever legitimately need float32 precision.
+        # N_mnu is internally fixed to 1 (not config-exposed). z's entries are
+        # numpy.float32 (PriorSampler stacks float32 torch tensors) so cast
+        # explicitly to plain Python float: cloelib's CAMBBackground
+        # requires isinstance(mnu, float), which numpy.float32 fails.
         background = CAMBBackground(
             H0=float(z[0]), Omega_b0=float(z[1]), Omega_cdm0=float(z[2]),
             w0=float(nuisance["w0"]), wa=float(nuisance["wa"]), Omega_k0=float(nuisance["Omega_k0"]),
@@ -208,7 +181,7 @@ class Simulator(swyft.Simulator):
         if self.derived_names:
             self._derived_values = self._compute_derived(background, perturbations)
 
-        # CIA is internally fixed to 0.0134 (not a config-exposed parameter).
+        # CIA is internally fixed (not config-exposed).
         nuisance["CIA"] = 0.0134
 
         tracer_pos = get_position_tracer(nuisance, self.n_bins, perturbations, self.dndz)
@@ -227,13 +200,11 @@ class Simulator(swyft.Simulator):
 
     def _compute_derived(self, background, perturbations):
         """
-        sigma8/Omega_m/S8 from the SAME background/perturbations objects
-        get_sample_Cls already built for C_ells (near-zero marginal cost) —
-        matches /home/abellan/CLOE_NEW/cloelib-swyft/cloe_swyft_simulator.ipynb's
-        pattern. Only computes what self.derived_names actually asked for;
-        returns an array ordered per params.DERIVED_PARAMS (not
-        self.derived_names' order), the same order get_derived_params/the
-        "derived" graph node expose downstream.
+        sigma8/Omega_m/S8 from the same background/perturbations objects
+        get_sample_Cls already built for C_ells (near-zero marginal cost).
+        Only computes what self.derived_names asked for; returns an array
+        ordered per params.DERIVED_PARAMS (not self.derived_names' order),
+        matching what get_derived_params/the "derived" graph node expose.
         """
         need_omega_m = "Omega_m" in self.derived_names or "S8" in self.derived_names
         need_sigma8  = "sigma8"  in self.derived_names or "S8" in self.derived_names
@@ -269,19 +240,15 @@ def build_simulator(config):
     """
     Construct a Simulator from a loaded YAML config dict.
 
-    If config["PRIORS"]["use_Fisher_priors"] is true, LOADS the Fisher matrix
-    already computed by fisher.run_fisher (config["PRIORS"]["finv_file"] must
-    already exist — see observation.generate_observation, which runs Fisher
-    once before the first build_simulator call in the pipeline) and narrows
-    every VARIED parameter's support in-memory to fiducial ± sigma_scale*sigma:
-    "uniform" parameters get those bounds directly; "normal" parameters keep
-    their configured mean/sigma but get their density truncated to that same
-    window (see PriorSampler/_TruncatedNormalRejection) — concentrating simulation
-    density where the posterior actually has support instead of wasting most
-    of the budget on the (exponentially, in high dimensions) more likely
-    events far from it. Raises a clear error (via priors.load_fisher_sigmas)
-    if finv_file is missing or stale relative to the current PRIORS
-    fixed/varied set.
+    If config["PRIORS"]["use_Fisher_priors"] is true, loads the Fisher matrix
+    from fisher.run_fisher (config["PRIORS"]["finv_file"] must already exist —
+    see observation.generate_observation) and narrows every varied
+    parameter's support to fiducial +/- sigma_scale*sigma: "uniform"
+    parameters get those bounds directly; "normal" parameters keep their
+    mean/sigma but get truncated to that window (PriorSampler/
+    _TruncatedNormalRejection). Concentrates simulation density where the
+    posterior actually has support. Raises via priors.load_fisher_sigmas if
+    finv_file is missing or stale relative to the current PRIORS fixed/varied set.
     """
     fiducial, specs, varied_names, varied_indices = resolve_priors(config)
 

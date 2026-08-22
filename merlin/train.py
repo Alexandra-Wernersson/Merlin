@@ -22,17 +22,12 @@ def _fmt_devices(trainer):
 
 class _EpochSummary(pl.Callback):
     """One print per epoch (train_loss/val_loss) instead of pytorch_lightning's
-    default per-batch progress bar, which floods a non-interactive log file
-    with a new line per step (its \\r-based live redraw only makes sense in a
-    real terminal)."""
+    per-batch progress bar, which floods a non-interactive log file."""
 
     def on_validation_epoch_end(self, trainer, pl_module):
         if trainer.sanity_checking:
-            # PyTorch Lightning's pre-training sanity-check validation pass --
-            # runs before any real training step, so train_loss doesn't exist
-            # yet and val_loss is computed from untrained/lazily-uninitialized
-            # weights (hence the harmless but confusing "Epoch 0 | val_loss=nan"
-            # otherwise printed here). Not a real epoch; skip logging it.
+            # Pre-training sanity-check pass, not a real epoch -- skip to avoid
+            # a confusing "Epoch 0 | val_loss=nan" line.
             return
         metrics = trainer.callback_metrics
         train_loss = metrics.get("train_loss")
@@ -49,22 +44,19 @@ def train(store_samples, V_proj, config, num_workers=0, extra_callbacks=None):
     """
     Train the network on pre-processed store samples.
 
-    The best checkpoint (by val_loss) is saved to config["STORES"]["checkpoint_path"]
-    as "best.ckpt" (see Network.configure_callbacks) — reload it later with
-    inference.predict_from_checkpoint to get predictions without retraining.
-    Per-step/epoch train_loss/val_loss are logged to
-    config["STORES"]["csv_logs"]/metrics.csv (pytorch-lightning's CSVLogger) for
-    plotting the training curve later.
+    Best checkpoint (by val_loss) is saved to
+    config["STORES"]["checkpoint_path"]/best.ckpt — reload with
+    inference.predict_from_checkpoint. Per-epoch train_loss/val_loss are
+    logged to config["STORES"]["csv_logs"]/metrics.csv for later plotting.
 
     Parameters
     ----------
     store_samples : swyft.Samples
     V_proj : np.ndarray
     config : dict
-    num_workers : int — use 0 in notebooks, 12+ in slurm jobs
+    num_workers : int — 0 in notebooks, 12+ in slurm jobs
     extra_callbacks : list[pl.Callback] or None — appended after the built-in
-        _EpochSummary callback, e.g. an Optuna pruning callback (see
-        optuna_search.py) that needs the Trainer to report per-epoch val_loss.
+        _EpochSummary callback (e.g. an Optuna pruning callback).
 
     Returns
     -------
@@ -124,20 +116,13 @@ def train(store_samples, V_proj, config, num_workers=0, extra_callbacks=None):
     print(f"Training finished after {trainer.current_epoch} epochs in "
           f"{format_duration(elapsed)} using {_fmt_devices(trainer)}")
 
-    # CSVLogger always writes an hparams.yaml alongside metrics.csv, but
-    # Network never registers any hyperparameters via save_hyperparameters(),
-    # so it's always empty -- delete it rather than leave a useless, possibly
-    # confusing file behind in train_<N>/.
+    # CSVLogger always writes an hparams.yaml, but Network never calls
+    # save_hyperparameters(), so it's always empty -- delete it.
     hparams_file = Path(config["STORES"]["csv_logs"]) / "hparams.yaml"
     hparams_file.unlink(missing_ok=True)
 
-    # swyft.ZarrStore.__init__ unconditionally constructs a
-    # zarr.ProcessSynchronizer, which recreates store_path+".sync" (a
-    # write-lock coordination directory, not simulation data -- see the
-    # matching cleanup in simulate.py) as a side effect of simply opening the
-    # store, even for training's read-only access. Harmless to remove once
-    # this training run is done reading; recreated automatically if the
-    # store is opened again later.
+    # Opening the store (even read-only) recreates store_path+".sync" (a
+    # write-lock dir, not data -- see simulate.py). Safe to remove now.
     store_path = config["SIMULATION"]["store_path"]
     shutil.rmtree(store_path + ".sync", ignore_errors=True)
     lock_file = store_path + ".lock.file"

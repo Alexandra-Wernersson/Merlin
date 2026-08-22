@@ -14,9 +14,8 @@ def main():
     simulate(config)
 
     # Record of exactly what produced this run_dir's store/finv.npz — kept
-    # separate from each training run's own train_<N>/config.yaml copy (see
-    # config.populate_train_dir), since training can vary independently of
-    # the simulations (different architecture, scale cuts, observation, ...).
+    # separate from each training run's own train_<N>/config.yaml copy, since
+    # training varies independently of the simulations.
     if "RUN" in config:
         run_dir = Path(config["RUN"]["run_dir"])
         shutil.copy(sys.argv[1], run_dir / "config.yaml")

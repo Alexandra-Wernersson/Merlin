@@ -2,7 +2,7 @@ import os
 import logging
 import warnings
 
-# Suppress noisy third-party warnings/prints that drown out merlin's own progress output.
+# Suppress noisy third-party warnings/prints that drown out merlin's progress output.
 os.environ.setdefault("NUMEXPR_MAX_THREADS", str(os.cpu_count() or 128))
 warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
 warnings.filterwarnings("ignore", message=".*UninitializedParameter.*")
@@ -10,8 +10,8 @@ warnings.filterwarnings("ignore", message=".*torch.load.*weights_only=False.*")
 warnings.filterwarnings("ignore", message=".*os\\.fork\\(\\) was called.*")
 warnings.filterwarnings("ignore", message=".*torch\\.set_default_tensor_type\\(\\) is deprecated.*")
 
-# pandas ignores our forced NUMEXPR_MAX_THREADS=1 and calls numexpr.set_num_threads()
-# with the full core count, which prints an unfilterable C-level fprintf error — so keep pandas off that path.
+# pandas calls numexpr.set_num_threads() with the full core count regardless
+# of NUMEXPR_MAX_THREADS, printing an unfilterable C-level error — disable it.
 import pandas as _pd
 _pd.set_option("compute.use_numexpr", False)
 del _pd
@@ -51,8 +51,8 @@ from .plotting import (
 )
 from .swyft_patches import apply_patches, set_swyft_filled
 
-# Suppress jax's/pytorch_lightning's/lightning_fabric's own startup log chatter.
-# Must come AFTER the imports above: importing pytorch_lightning resets its logger to INFO, undoing this if set earlier.
+# Suppress jax/pytorch_lightning/lightning_fabric startup log chatter.
+# Must come AFTER the imports above: importing pytorch_lightning resets its logger to INFO.
 logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
 logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
 logging.getLogger("lightning_fabric").setLevel(logging.ERROR)

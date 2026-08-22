@@ -18,18 +18,11 @@ _GROWTH_CONSISTENCY_SECTIONS = ("FIDUCIAL", "PRIORS", "CLOELIB_SETTINGS")
 
 def _check_growth_consistency(config, run_dir):
     """
-    Before growing an existing store (SIMULATION.add_extra_sims), verify this
-    config's FIDUCIAL/PRIORS/CLOELIB_SETTINGS sections -- everything
-    build_simulator actually reads to decide what gets simulated -- exactly
-    match whatever config produced the store's existing rows. Without this,
-    growing a store with e.g. different PRIORS.sigma_scale or a different
-    CLOELIB_SETTINGS.add_derived would silently mix incompatible
-    simulations into one store. cli/simulate.py always saves a copy of the
-    config used to run_dir/config.yaml on every merlin-simulate call
-    (including previous growth calls), so that's the reference.
-    NETWORK/TRAINING/PCA/PLOTTING are intentionally not checked -- those are
-    training-time choices that already vary independently per train_<N>
-    slot against the same store.
+    Verify this config's FIDUCIAL/PRIORS/CLOELIB_SETTINGS (everything
+    build_simulator reads) match the config that produced the store's
+    existing rows, saved at run_dir/config.yaml -- growing with different
+    settings would silently mix incompatible simulations. NETWORK/TRAINING/
+    PCA/PLOTTING vary independently per train_<N> and are skipped.
     """
     from .config import load_config
 
@@ -62,25 +55,19 @@ def simulate(config):
     """
     Fill a ZarrStore with simulations using parallel joblib workers.
 
-    If config["PRIORS"]["use_Fisher_priors"] is true, runs fisher.run_fisher
-    first (a no-op otherwise) — Fisher only ever feeds prior bounds for THIS
-    step (via build_simulator), so it's run here rather than as a separate
-    CLI step; the Zarr store is the only artifact this produces that anything
-    downstream (observation.generate_observation, inference, coverage) reads
-    back, and none of them re-trigger Fisher themselves.
+    Runs fisher.run_fisher first if PRIORS.use_Fisher_priors is set (a no-op
+    otherwise), since Fisher only feeds prior bounds for this step.
 
-    Config keys used:
-        SIMULATION.store_path, N_sims, batch_size, chunk_size, n_workers,
-        add_extra_sims
+    Config keys: SIMULATION.store_path, N_sims, batch_size, chunk_size,
+    n_workers, add_extra_sims.
 
-    SIMULATION.add_extra_sims (default false): if true, grow an EXISTING store
-    at store_path to the new (larger) N_sims via ZarrStore.reset_length, then
-    fill the newly added slots — instead of creating a separate store. Raises
-    ValueError if no store exists yet at store_path, or if N_sims is not
-    strictly larger than the store's current length, or if this config's
-    FIDUCIAL/PRIORS/CLOELIB_SETTINGS sections differ from whatever config
-    produced the store's existing rows (see _check_growth_consistency).
-    Leave false for the normal create-or-resume-up-to-N_sims behaviour.
+    If SIMULATION.add_extra_sims is true, grows an existing store at
+    store_path to the new N_sims via ZarrStore.reset_length instead of
+    creating a new one. Raises ValueError if no store exists, N_sims isn't
+    strictly larger than the current length, or FIDUCIAL/PRIORS/
+    CLOELIB_SETTINGS differ from what produced the existing rows (see
+    _check_growth_consistency). Default false creates or resumes a store
+    up to N_sims.
     """
     if config["PRIORS"].get("use_Fisher_priors", False):
         from .fisher import run_fisher
@@ -147,11 +134,8 @@ def simulate(config):
     })
 
     def _chunk(n):
-        # swyft.Simulator.sample() wraps its per-sample loop in tqdm with no
-        # way to disable it — replace the module-level tqdm reference it uses
-        # with a no-op passthrough. Applied inside the worker function itself
-        # (not just once in the parent process) since joblib workers may be
-        # separate processes that re-import swyft fresh.
+        # Disable swyft's per-sample tqdm (no off-switch) by patching its module
+        # reference; done per-worker since joblib processes re-import swyft.
         import swyft.lightning.simulator as _swyft_simulator_mod
         _swyft_simulator_mod.tqdm = lambda it, *a, **kw: it
         store.simulate(sim, max_sims=n, batch_size=n)
@@ -164,9 +148,8 @@ def simulate(config):
         jobs = min(n_workers, remaining // chunk_size + 1)
         Parallel(n_jobs=jobs)(delayed(_chunk)(chunk_size) for _ in range(jobs))
         done = N_sims - store.sims_required
-        # A static tqdm-formatted bar string printed as a normal log line (not
-        # tqdm's own live \r-redrawn display, which collapses into one unreadable
-        # line when the log is viewed as a plain file rather than a live terminal).
+        # Static tqdm-formatted bar as a log line, not tqdm's live \r-redraw
+        # (unreadable when the log is viewed as a plain file).
         bar = tqdm.format_meter(n=done, total=N_sims, elapsed=time.time() - t0,
                                  unit="sim", prefix="Simulating")
         _log(bar)
@@ -178,11 +161,8 @@ def simulate(config):
     _log(summary)
     logging.info(summary)
 
-    # store.sync/store.lock.file are swyft/zarr's own inter-process write
-    # coordination artifacts (ProcessSynchronizer / fasteners.InterProcessLock),
-    # not simulation data — safe to remove once no more workers are writing;
-    # they're recreated automatically on demand if the store is read or
-    # written to again later.
+    # store.sync/store.lock.file are zarr's inter-process write-coordination
+    # artifacts, not simulation data -- safe to remove; recreated on demand.
     shutil.rmtree(store_path + ".sync", ignore_errors=True)
     lock_file = store_path + ".lock.file"
     if os.path.exists(lock_file):

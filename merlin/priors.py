@@ -47,17 +47,16 @@ def _parse_entry(name, entry):
 
 def resolve_priors(config):
     """
-    Cross-validate config["FIDUCIAL"] and config["PRIORS"]["params"]
-    against params.PARAMS (every one of the 50 canonical names must appear in
-    both, no extras — raises ValueError naming the mismatch otherwise), and
-    resolve them into PARAMS-ordered, name-independent structures.
+    Cross-validate config["FIDUCIAL"] and config["PRIORS"]["params"] against
+    params.PARAMS (every name must appear in both) and resolve into
+    PARAMS-ordered structures.
 
     Returns
     -------
-    fiducial       : list[float], len(PARAMS), in PARAMS order.
-    specs          : list[PriorSpec], len(PARAMS), in PARAMS order.
-    varied_names   : list[str]  — PARAMS-order subset with kind != "fixed".
-    varied_indices : list[int]  — their positions in PARAMS.
+    fiducial       : list[float], PARAMS order.
+    specs          : list[PriorSpec], PARAMS order.
+    varied_names   : list[str] — non-fixed subset, PARAMS order.
+    varied_indices : list[int] — their positions in PARAMS.
     """
     fiducial_cfg = config["FIDUCIAL"]
     priors_params = config["PRIORS"]["params"]
@@ -87,16 +86,13 @@ def resolve_priors(config):
     return fiducial, specs, varied_names, varied_indices
 
 
-# Hard-coded per-parameter sigma_scale override for D_i (photo-z shift)
-# parameters, calibrated at PRIORS.sigma_scale=5 and rescaled by scale/5 in
-# apply_fisher_bounds below (so raising/lowering PRIORS.sigma_scale still
-# scales D_i proportionally, instead of pinning it to a fixed absolute
-# value) -- Fisher's marginalized sigma badly over-predicts where D_i's true
-# posterior actually has support (near-total linear-order degeneracy among
-# the D_i, largely broken in the true non-Gaussian posterior; see
-# prior_setup_Di.png), so simulations drawn at the configured scale are
-# mostly wasted far outside the relevant region. Tighter, hand-tuned scales
-# here concentrate the budget where it matters instead.
+# Per-parameter sigma_scale overrides for D_i (photo-z shift) parameters,
+# calibrated at PRIORS.sigma_scale=5 and rescaled by scale/5 in
+# apply_fisher_bounds so they still scale with PRIORS.sigma_scale. Fisher's
+# marginalized sigma over-predicts D_i's true posterior support (near-total
+# linear-order degeneracy among the D_i, broken in the true non-Gaussian
+# posterior); these tighter, hand-tuned scales concentrate simulations where
+# the posterior actually has mass.
 _DI_SIGMA_SCALE_OVERRIDE = {
     **{f"D_{i}": 2.0 for i in (1,)},
     **{f"D_{i}": 1.4 for i in (2, 3)},
@@ -111,18 +107,13 @@ _DI_SIGMA_SCALE_OVERRIDE = {
 
 def apply_fisher_bounds(specs, fiducial, varied_indices, sigmas, scale):
     """
-    Return a NEW specs list (does not mutate input) where every entry at
-    varied_indices has (lower, upper) overwritten to
-    (fiducial[i] - p_scale*sigma, fiducial[i] + p_scale*sigma), where p_scale
-    is `scale` for every parameter except D_i, which uses its own hard-coded
-    override (_DI_SIGMA_SCALE_OVERRIDE, rescaled by scale/5) instead — for "uniform" entries this
-    replaces the prior's bounds entirely; for "normal" entries it restricts
-    the SAME Normal(mean, sigma) density to that window (a truncated normal —
-    see simulator.PriorSampler/_TruncatedNormalRejection), leaving mean/sigma
-    untouched, so the density shape is unchanged, only its support is
-    narrowed to where the posterior actually has mass. "fixed" entries pass
-    through unchanged. sigmas[k] must correspond to varied_indices[k] (as
-    returned together by fisher.run_fisher).
+    Return a new specs list (input unchanged) with (lower, upper) at each
+    varied_indices entry set to fiducial[i] +/- p_scale*sigma, where p_scale
+    is `scale` (or the D_i override, rescaled by scale/5). "uniform" entries
+    get these as their new bounds; "normal" entries keep mean/sigma but get
+    truncated to this window (see PriorSampler/_TruncatedNormalRejection).
+    "fixed" entries pass through unchanged. sigmas[k] must correspond to
+    varied_indices[k] (as returned by fisher.run_fisher).
     """
     new_specs = list(specs)
     for k, i in enumerate(varied_indices):
@@ -143,12 +134,11 @@ def apply_fisher_bounds(specs, fiducial, varied_indices, sigmas, scale):
 
 def load_fisher_sigmas(finv_file, varied_indices, varied_names):
     """
-    Load an Finv saved by fisher.run_fisher (an .npz with keys Finv,
-    varied_indices, varied_names) and return sigma = sqrt(diag(Finv)),
-    validating that the saved varied_names exactly match `varied_names`
-    (raises ValueError on mismatch — e.g. if PRIORS.params's fixed/varied
-    flags changed since Fisher was last run, this Finv is stale and must be
-    recomputed via run_fisher/generate_observation).
+    Load an Finv saved by fisher.run_fisher and return sigma =
+    sqrt(diag(Finv)), validating that its saved varied_names match
+    `varied_names` (raises ValueError if stale — e.g. PRIORS's fixed/varied
+    flags changed since Fisher was last run; re-run via
+    observation.generate_observation or fisher.run_fisher).
     """
     data = np.load(finv_file, allow_pickle=False)
     saved_names = list(data["varied_names"])
@@ -165,35 +155,28 @@ def load_fisher_sigmas(finv_file, varied_indices, varied_names):
 
 def resolve_inference_params(config):
     """
-    Resolve config["TRAINING"]["params_to_infer"] (default "COSMO") to (names,
-    indices), validated against the varied parameter set derived from
-    resolve_priors(config) for PARAMS-space names.
+    Resolve config["TRAINING"]["params_to_infer"] (default "COSMO") to
+    (names, indices), validated against the varied parameter set from
+    resolve_priors(config).
 
-    Each name is resolved against PARAMS first, then against THIS config's
-    own CLOELIB_SETTINGS.add_derived subset (sigma8/Omega_m/S8 — computed,
-    not sampled; see simulator.py's "derived" graph node) — NOT the full
-    params.DERIVED_PARAMS registry, since a store's actual "derived" array
-    only has as many columns as its own add_derived asked for (e.g.
-    add_derived: [Omega_m] alone produces a 1-column array with Omega_m at
-    position 0, not at DERIVED_PARAMS's canonical position 1) — indexing
-    against the full registry instead of this config's actual resolved
-    subset would silently grab the wrong column or go out of bounds for any
-    add_derived that isn't the full 3-name set. Indices are returned in a
-    CONCATENATED index space so network.py can gather from
-    torch.cat([z, derived], dim=-1) directly: PARAMS-space indices are
-    unchanged (0..len(PARAMS)-1); derived-space indices are offset by
-    len(PARAMS) and positioned per THIS config's add_derived order. This is
-    the single source of truth for that offset convention — callers must not
-    re-derive it.
+    Names resolve against PARAMS first, then against this config's own
+    CLOELIB_SETTINGS.add_derived subset (sigma8/Omega_m/S8 — computed, not
+    sampled) — not the full params.DERIVED_PARAMS registry, since a store's
+    "derived" array only has as many columns as its own add_derived asked
+    for, at positions matching that subset's order, not DERIVED_PARAMS's
+    canonical positions. Indices are returned in a concatenated index space
+    so network.py can gather from torch.cat([z, derived], dim=-1) directly:
+    PARAMS-space indices are unchanged; derived-space indices are offset by
+    len(PARAMS), ordered per this config's add_derived. This is the single
+    source of truth for that offset convention.
 
     Raises
     ------
-    ValueError — naming any resolved PARAMS-space parameter that is FIXED per
-    config["PRIORS"] (there is no prior/posterior to infer over a fixed
-    value; this check doesn't apply to derived names, which have no PRIORS
-    entry at all — nothing to be "fixed" relative to).
-    ValueError — naming any resolved name that is in neither PARAMS nor this
-    config's CLOELIB_SETTINGS.add_derived.
+    ValueError — a resolved PARAMS-space name is marked fixed in PRIORS
+    (nothing to infer over a fixed value; doesn't apply to derived names,
+    which have no PRIORS entry to be fixed relative to).
+    ValueError — a resolved name is in neither PARAMS nor this config's
+    CLOELIB_SETTINGS.add_derived.
     """
     _, _, varied_names, _ = resolve_priors(config)
     varied_set = set(varied_names)

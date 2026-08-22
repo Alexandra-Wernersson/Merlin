@@ -41,21 +41,17 @@ def load_config(path):
 
 def _populate_run_dir(config):
     """
-    Derive the paths shared across every training run under RUN.run_dir —
-    the Zarr simulation store and the Fisher matrix, both produced once by
-    `merlin-simulate` and then only ever read (never recomputed) by anything
-    downstream. Creates run_dir/store on disk; run_dir/finv.npz itself is
-    written by fisher.run_fisher (called from simulate.simulate), not here.
+    Derive paths shared across every training run under RUN.run_dir: the
+    Zarr store and Fisher matrix, both produced once by `merlin-simulate`
+    and only ever read downstream. Creates run_dir/store on disk;
+    run_dir/finv.npz is written later by fisher.run_fisher.
 
         <run_dir>/store            SIMULATION.store_path (swyft ZarrStore)
         <run_dir>/finv.npz         PRIORS.finv_file
 
-    Everything an individual *training run* produces (checkpoint, csv logs,
-    PCA projection, mock observation, plots) lives under a per-run
-    <run_dir>/train_<N>/ subfolder instead — see populate_train_dir, which
-    must be called explicitly (this function does not call it) before doing
-    anything training/observation/plotting-related. See "Output directory
-    layout" in README.md for the full tree and rationale.
+    Per-run artifacts (checkpoint, csv logs, PCA, mock obs, plots) live
+    under <run_dir>/train_<N>/ instead -- see populate_train_dir, which
+    must be called explicitly before any training/observation/plotting.
     """
     run_dir = Path(config["RUN"]["run_dir"])
     store_dir = run_dir / "store"
@@ -79,28 +75,18 @@ def _train_ids(run_dir):
 def populate_train_dir(config, config_path, train_id=None):
     """
     Create (train_id=None) or select (train_id=<int>) a run_dir/train_<N>
-    subfolder, and inject STORES.checkpoint_path/csv_logs/plots_dir,
-    OBSERVATION.OBS/OBS_CHOLESKY/LFID, and PCA.SVD to point inside it —
-    everything a single training run produces, since different training runs
-    against the same simulation store can vary network architecture, scale
-    cuts, PCA settings, or the observation evaluated against (see README.md's
-    "Output directory layout"). Must be called (after
-    load_config, before any of observation.generate_observation,
-    preprocessing.preprocess, train.train, coverage.run_coverage_test, or any
-    plotting.plot_*_mode function) by any caller that needs those paths —
-    unlike SIMULATION.store_path/PRIORS.finv_file, they are NOT populated by
-    load_config itself, since load_config has no way to know whether a given
-    call is meant to create a new training run, target an existing one, or
-    neither (e.g. merlin-simulate).
+    subfolder, and point STORES.checkpoint_path/csv_logs/plots_dir,
+    OBSERVATION.OBS/OBS_CHOLESKY/LFID, and PCA.SVD inside it. Must be called
+    after load_config and before any training/observation/plotting call
+    that needs those paths -- unlike store_path/finv_file, load_config
+    can't populate them since it doesn't know if the call is meant to
+    create a new training run, target an existing one, or neither
+    (e.g. merlin-simulate).
 
-    train_id=None (merlin-train): creates the next free train_<N> (never
-    reuses or overwrites an existing one) and copies config_path there as
-    train_<N>/config.yaml — the historical record of exactly what produced
-    that run. Returns the new train_id.
-    train_id=<int> (merlin-plot, or re-inspecting a past run): selects the
-    EXISTING train_<train_id> and leaves its saved config.yaml untouched —
-    raises FileNotFoundError (naming the existing train_ids, if any) if it
-    doesn't exist. Returns train_id unchanged.
+    train_id=None: creates the next free train_<N> and copies config_path
+    there as train_<N>/config.yaml. Returns the new train_id.
+    train_id=<int>: selects an existing train_<train_id>, leaving its saved
+    config.yaml untouched. Raises FileNotFoundError if it doesn't exist.
     """
     run_dir = Path(config["RUN"]["run_dir"])
 
@@ -117,12 +103,8 @@ def populate_train_dir(config, config_path, train_id=None):
                 f"or check --train-id (existing: {_train_ids(run_dir)})"
             )
 
-    # checkpoint_path/csv_logs point directly at train_dir (not a nested
-    # subfolder) — each only ever holds a single relevant file (best.ckpt;
-    # metrics.csv, alongside an always-empty hparams.yaml PyTorch Lightning's
-    # CSVLogger writes regardless since Network never registers hyperparameters
-    # via save_hyperparameters()), so a dedicated subfolder for either was
-    # unnecessary indirection.
+    # checkpoint_path/csv_logs point directly at train_dir since each only
+    # ever holds one relevant file (best.ckpt; metrics.csv).
     plots_dir    = train_dir / "plots"
     aux_dir      = train_dir / "aux_files"
     mock_obs_dir = train_dir / "mock_obs"

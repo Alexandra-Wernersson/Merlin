@@ -11,20 +11,18 @@ from .tracers import load_dndz
 def run_fisher(config, eps=1e-2):
     """
     Compute the Fisher matrix via finite differences over every VARIED
-    parameter in config["PRIORS"], combine it with each "normal"-kind
-    parameter's own Gaussian-prior curvature (see below), and save Finv to
-    config["PRIORS"]["finv_file"] as an .npz containing Finv, varied_indices,
-    and varied_names (the latter two let build_simulator/load_fisher_sigmas
-    detect a stale Finv if PRIORS's fixed/varied set changed since this was
-    last run).
+    parameter in config["PRIORS"], add each "normal"-kind parameter's own
+    Gaussian-prior curvature, and save Finv to config["PRIORS"]["finv_file"]
+    as an .npz containing Finv, varied_indices, and varied_names (the latter
+    two let build_simulator/load_fisher_sigmas detect a stale Finv if
+    PRIORS's fixed/varied set changed since).
 
     Finv is the inverse of the POSTERIOR (not just likelihood) Fisher matrix:
     likelihood information (J^T Cinv J) plus each "normal"-kind parameter's
-    own prior precision (1/sigma^2) on the diagonal, i.e. what you'd get by
-    Laplace-approximating likelihood x prior. Without the prior term,
-    marginalizing over other Gaussian-prior parameters overstates how freely
-    they can vary to compensate a shift in parameter a, inflating a's
-    marginalized sigma.
+    prior precision (1/sigma^2) on the diagonal — Laplace-approximating
+    likelihood x prior. Without the prior term, marginalizing over other
+    Gaussian-prior parameters overstates how freely they compensate a shift
+    in parameter a, inflating a's marginalized sigma.
 
     Parameters
     ----------
@@ -69,15 +67,9 @@ def run_fisher(config, eps=1e-2):
             F[a, b] = derivatives[a] @ inv_cov @ derivatives[b]
             F[b, a] = F[a, b]
 
-    # F above is LIKELIHOOD-only Fisher information (J^T Cinv J). Add each
-    # "normal"-kind parameter's own prior curvature (1/sigma^2) to the
-    # diagonal before inverting -- the standard combination of a Gaussian
-    # likelihood with an independent Gaussian prior -- since without it,
-    # marginalizing implicitly treats every other Gaussian-prior parameter
-    # (e.g. m_i, D_j) as completely unconstrained, overstating how much they
-    # can compensate for a shift in parameter a and inflating its
-    # marginalized sigma. "uniform"-kind parameters have no curvature to add
-    # (flat prior).
+    # F is LIKELIHOOD-only so far. Add each "normal"-kind parameter's prior
+    # curvature (1/sigma^2) to the diagonal before inverting; "uniform"-kind
+    # parameters have no curvature to add (flat prior).
     for k, i in enumerate(varied_indices):
         if specs[i].kind == "normal":
             F[k, k] += 1.0 / specs[i].sigma ** 2

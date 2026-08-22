@@ -42,10 +42,8 @@ def _checkpoint_path(config):
 def _hdi_thresholds(counts, cred_level=(0.68268, 0.95450)):
     """
     Density thresholds enclosing the given highest-density-interval credible
-    masses — same sorted-cumulative-mass algorithm swyft's own (private)
-    plot.plot._get_HDI_thresholds uses internally, reimplemented here (rather
-    than importing swyft's underscore-prefixed function) so the filled-band
-    contours below don't depend on swyft's private API.
+    masses. Reimplements swyft's private plot._get_HDI_thresholds so the
+    filled-band contours below don't depend on swyft's private API.
     """
     flat = np.sort(counts.flatten())[::-1]
     total_mass = flat.sum()
@@ -58,22 +56,17 @@ def load_mcmc_overlay(config):
     """
     Load the nested-sampling chain configured for corner-plot overlay, if any.
 
-    Returns (chain_dict, weights) or (None, None) if PLOTTING.mcmc_path
-    is unset/null. chain_dict maps physics parameter names (params.MCMC_KEY_MAP
-    values, e.g. "multiplicative_bias_3") to 1d sample arrays; weights are
-    linear (already normalized to sum to 1), converted from the file's LOG
-    nested-sampling weights — no burn-in to discard (unlike MCMC chains,
-    nested sampling has none).
+    Returns (chain_dict, weights) or (None, None) if PLOTTING.mcmc_path is
+    unset/null. chain_dict maps physics parameter names (params.MCMC_KEY_MAP
+    values) to 1d sample arrays; weights are linear (normalized to sum to 1),
+    converted from the file's log nested-sampling weights (no burn-in, unlike
+    MCMC chains).
 
     Expects a Nautilus-format .npz: a 0-d object array "chain" (.item() gives
-    the dict above) and a "weights" array of log-weights. If a sibling 0-d
-    object array "derived" is present (confirmed present in every Nautilus
-    chain generated so far, holding {"sigma8_0": array} — see
-    params.MCMC_KEY_MAP), its entries are merged into the same returned
-    dict, so an overlay for a derived params_to_infer entry (currently only
-    sigma8 has a chain-side equivalent) works via the same
-    MCMC_KEY_MAP[name]/chain_dict[key] lookup mcmc_samples_for already uses
-    for PARAMS-space names — no separate code path needed there.
+    the dict above) and a "weights" log-weight array. A sibling "derived"
+    0-d object array, if present (e.g. {"sigma8_0": array}), is merged into
+    the same dict so a derived params_to_infer entry overlays through the
+    same MCMC_KEY_MAP lookup as PARAMS-space names.
     """
     chain_path = config.get("PLOTTING", {}).get("mcmc_path")
     if not chain_path:
@@ -91,11 +84,10 @@ def load_mcmc_overlay(config):
 
 def mcmc_samples_for(param_names, chain_dict, weights):
     """
-    Build a getdist MCSamples over param_names (merlin params.PARAMS names),
-    mapped to chain_dict's own key names via params.MCMC_KEY_MAP. Raises
-    KeyError naming the parameter if MCMC_KEY_MAP or chain_dict is missing
-    one of param_names — e.g. TRAINING.params_to_infer includes a parameter
-    the configured chain doesn't have.
+    Build a getdist MCSamples over param_names, mapped to chain_dict's key
+    names via params.MCMC_KEY_MAP. Raises KeyError if MCMC_KEY_MAP or
+    chain_dict is missing a param_names entry (e.g. TRAINING.params_to_infer
+    includes a parameter the configured chain doesn't have).
     """
     from getdist import MCSamples
 
@@ -108,23 +100,20 @@ def mcmc_samples_for(param_names, chain_dict, weights):
 def plot_corner_mode(config, output_path, smooth=None, bins=None):
     """
     Corner plot of every TRAINING.params_to_infer parameter (LaTeX labels from
-    params.PARAM_LABELS, fiducial truth lines from FIDUCIAL), evaluated
-    on the mock observation using the best checkpoint in STORES.checkpoint_path.
+    params.PARAM_LABELS, fiducial truth lines from FIDUCIAL), evaluated on
+    the mock observation using the best checkpoint in STORES.checkpoint_path.
 
     smooth, bins : Gaussian-kernel smoothing and bin count passed to
-        swyft.plot_corner and get_pdf for Merlin's density estimate -- higher
-        smooth smooths more. Default to config["PLOTTING"]["smooth_swyft"]/
-        ["nbins_swyft"] (falling back to 1.0/100 if unset); pass explicitly
-        to override the config for a one-off plot.
+        swyft.plot_corner and get_pdf (higher smooth = smoother). Default to
+        config["PLOTTING"]["smooth_swyft"]/["nbins_swyft"] (1.0/100 if
+        unset); pass explicitly to override for a one-off plot.
 
-    If PLOTTING.mcmc_path is set, overlays that nested-sampling chain in
-    green (see load_mcmc_overlay) — every parameter in TRAINING.params_to_infer
-    must have an entry in params.MCMC_KEY_MAP and in the chain itself, or this
-    raises a KeyError naming the missing one. The overlay is drawn from
-    getdist density estimates (get1DDensity/get2DDensity) plotted directly via
-    matplotlib, rather than getdist's own plot_1d/plot_2d axis-drawing methods
-    — those inject their own ticks/labels into the shared axes, which would
-    otherwise need stripping back out afterward.
+    If PLOTTING.mcmc_path is set, overlays that nested-sampling chain (see
+    load_mcmc_overlay) — every TRAINING.params_to_infer parameter must have
+    an entry in params.MCMC_KEY_MAP and in the chain, or this raises
+    KeyError. Drawn from getdist density estimates plotted directly via
+    matplotlib rather than getdist's own plot_1d/plot_2d, which would inject
+    their own ticks/labels into the shared axes.
     """
     import matplotlib.pyplot as plt
 
@@ -148,13 +137,10 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     obs    = np.load(config["OBSERVATION"]["OBS"], allow_pickle=True).item()
     obs_sample = preprocess_obs(obs, Lfid, config=config)
 
-    # Truth/axvline value for each inferred parameter. PARAMS-space indices
-    # (< n_params) come from FIDUCIAL as before; derived-space indices
-    # (>= n_params, see priors.resolve_inference_params's concatenated index
-    # space) have no FIDUCIAL entry at all (they're computed, not sampled) —
-    # their truth instead comes from the observation's own "derived" array,
-    # which generate_observation() already populated at the fiducial
-    # cosmology for free (see simulator.Simulator.generate_observation).
+    # Truth/axvline value per inferred parameter: PARAMS-space indices
+    # (< n_params) come from FIDUCIAL; derived-space indices (>= n_params,
+    # see priors.resolve_inference_params) have no FIDUCIAL entry, so their
+    # truth comes from the observation's own "derived" array instead.
     truth = [
         fiducial[i] if i < n_params else obs["derived"][i - n_params]
         for i in param_indices
@@ -168,13 +154,10 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
 
     parnames = [f"z[{i}]" for i in range(N_plot)]
     labels   = [PARAM_LABELS.get(name, name) for name in param_names]
-    # Figure size scales linearly with N_plot (figsize=2.2*N_plot per side),
-    # so fixed label/tick fontsizes read proportionally smaller on larger
-    # triangle plots (e.g. 13x13 PHOTOZ) than on smaller ones (e.g. 5x5
-    # COSMO) -- scale up to compensate, clamped at the original fontsize for
-    # N_plot<=5 so small corner plots look exactly as before. Sqrt (not
-    # linear like legend_fontsize below) -- a full linear scale-up reads as
-    # oversized once there are many more, smaller panels crowded together.
+    # Figure size scales linearly with N_plot, so fixed fontsizes read
+    # proportionally smaller on larger triangle plots; scale up to
+    # compensate, clamped at the original size for N_plot<=5. Sqrt (not
+    # linear) since a full linear scale-up looks oversized with many panels.
     label_fontsize = max(16, 16 * np.sqrt(N_plot / 5))
     fontsize_tick = max(13, 13 * np.sqrt(N_plot / 5))
     color_merlin = "tab:blue"
@@ -190,12 +173,10 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
         label_args={"fontsize": label_fontsize, "labelpad": 10}, linewidth=1.5,
     )
 
-    # Filled credible-region bands for Merlin's 2D panels, layered underneath
-    # (zorder) the crisp contour lines swyft.plot_corner already drew above —
-    # swyft's own cmap= option gives a continuous density heatmap instead of
-    # discrete bands, which reads as barely-there against a white background,
-    # so the bands are recomputed here from swyft's own public get_pdf utility
-    # (same bins/smooth swyft.plot_corner was called with, for consistency).
+    # Filled credible-region bands for Merlin's 2D panels, drawn underneath
+    # swyft.plot_corner's contour lines (its own cmap= option gives a
+    # continuous heatmap that reads as barely-there on white). Recomputed
+    # via swyft's public get_pdf, same bins/smooth as plot_corner above.
     merlin_band_colors = [to_rgba(color_merlin, 0.3), to_rgba("darkblue", 0.75)]
     for i, j in marginals:
         ax = axes[j, i]
@@ -208,23 +189,14 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
-    # Force axis ranges to match the configured PRIORS bounds (post-Fisher-
-    # overlay, i.e. what sim.sample_z actually drew from — the same object
-    # infer()/predict_from_checkpoint used above) rather than swyft's default
+    # Force axis ranges to the configured PRIORS bounds (post-Fisher-overlay,
+    # what sim.sample_z actually drew from) rather than swyft's default
     # auto-scaling to the posterior sample spread — which for Normal-type
-    # priors (e.g. the m_i shear-calibration nuisance params) auto-scales to
-    # whatever the raw posterior samples happen to span, routinely far wider
-    # than where the marginal actually has support. Uniform priors and
-    # Fisher-truncated Normal priors (PRIORS.use_Fisher_priors — see
-    # simulator._TruncatedNormalRejection) both use their exact hard bounds directly;
-    # a plain (untruncated) Normal gets an explicit mean +/- N*sigma window
-    # instead, since it has no hard bounds of its own (fixed-type parameters
-    # keep swyft's auto range — they have no meaningful "prior range", since
-    # they're never sampled/varied at all). Derived-space indices (>= n_params)
-    # are skipped entirely — a deterministic, computed quantity (sigma8/
-    # Omega_m/S8) has no torch.distributions prior object at all, so those
-    # axes just keep swyft's own auto-range, same as any other
-    # no-override parameter.
+    # priors (e.g. m_i) can span far wider than where the marginal has
+    # support. Uniform and Fisher-truncated Normal priors use their exact
+    # bounds; a plain Normal gets mean +/- N*sigma instead. Fixed and
+    # derived-space parameters have no meaningful prior range, so they keep
+    # swyft's auto-range.
     NORMAL_RANGE_NSIGMA = 5
     sim = build_simulator(config)
     prior_ranges = {}
@@ -248,8 +220,8 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
             axes[j, i].set_ylim(*prior_ranges[j])
 
     if mcmc_samples is not None:
-        # Grab swyft's axis limits first, so the MCMC densities are evaluated
-        # and drawn on the same scale as the SBI posterior.
+        # Grab swyft's axis limits first so MCMC densities are evaluated and
+        # drawn on the same scale as the SBI posterior.
         xlims = [axes[i, i].get_xlim() for i in range(N_plot)]
         ylims_diag = [axes[i, i].get_ylim() for i in range(N_plot)]
         xlims_off = {(j, i): axes[j, i].get_xlim() for i, j in marginals}
@@ -258,47 +230,35 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
             density = mcmc_samples.get1DDensity(mcmc_keys[i])
             xs = np.linspace(*xlims[i], 500)
             ys = density.Prob(xs)
-            # Rescale to Merlin's own curve height (already drawn on this ax
-            # by swyft.plot_corner above) rather than swyft's default ylim
-            # (typically ~1.3x the Merlin peak, for its own headroom) -- so
-            # both curves' peaks land at the same height instead of Nautilus
-            # reading taller than Merlin purely from the axis's own margin.
+            # Rescale to Merlin's curve height (not swyft's default ylim, which
+            # has its own headroom) so both curves' peaks land at the same height.
             merlin_peak = axes[i, i].lines[0].get_ydata().max()
             if ys.max() > 0:
                 ys = ys / ys.max() * merlin_peak
             axes[i, i].plot(xs, ys, color=color_mcmc, lw=2.0)
             axes[i, i].set_xlim(xlims[i])
-            # Headroom above the shared peak height (both curves now peak at
-            # merlin_peak) instead of swyft's own (now-irrelevant) ylim.
             axes[i, i].set_ylim(ylims_diag[i][0], merlin_peak * 1.15)
         for i, j in marginals:
             if xlims_off[(j, i)][0] == xlims_off[(j, i)][1] or ylims_off[(j, i)][0] == ylims_off[(j, i)][1]:
-                # Degenerate (zero-width) swyft posterior on this panel — e.g. a
-                # near-delta-function posterior for a very tightly-constrained
-                # parameter — nothing meaningful to overlay here.
+                # Degenerate (zero-width) swyft posterior on this panel — nothing to overlay.
                 continue
             density2d = mcmc_samples.get2DDensity(mcmc_keys[i], mcmc_keys[j], normalized=True)
             xs = np.linspace(*xlims_off[(j, i)], 200)
             ys = np.linspace(*ylims_off[(j, i)], 200)
             XX, YY = np.meshgrid(xs, ys)
-            # NOT density2d.Prob(XX, YY) — installed getdist==1.4's Density2D.Prob
-            # calls self.__call__(...) but never returns it, so it always gives
-            # None. Call the (callable) density object directly instead; pass
-            # the 1D xs/ys with grid=True (not the meshgridded XX/YY) to get a
-            # proper (len(xs), len(ys)) grid back — then transpose to match
-            # meshgrid's (ny, nx) convention for ax.contour.
+            # NOT density2d.Prob(XX, YY): getdist==1.4's Density2D.Prob calls
+            # __call__ but doesn't return it, so it always gives None. Call the
+            # density object directly with 1D xs/ys and grid=True instead, then
+            # transpose to match meshgrid's (ny, nx) convention.
             ZZ = density2d(xs, ys, grid=True).T
             levels = sorted(density2d.getContourLevels([0.68, 0.95]))
             axes[j, i].contour(XX, YY, ZZ, levels=levels, colors=color_mcmc, linewidths=2.0)
             axes[j, i].set_xlim(xlims_off[(j, i)])
             axes[j, i].set_ylim(ylims_off[(j, i)])
 
-    # Rotate x-tick labels only (not y) -- unrotated, they clump together
-    # into an unreadable smear once there are many closely-spaced bottom-row
-    # panels (e.g. 13x13 PHOTOZ). Harmless to apply to every panel here
-    # rather than just the bottom row: swyft.plot_corner already hides tick
-    # labels on all but the bottom/left edge panels, so rotating a hidden
-    # label has no visible effect.
+    # Rotate x-tick labels only: unrotated, they clump into an unreadable
+    # smear with many closely-spaced panels. Safe to apply to every panel —
+    # swyft.plot_corner already hides ticks on non-edge panels.
     XTICK_ROTATION = 45
     for i in range(N_plot):
         axes[i, i].axvline(truth[i], color="black", lw=1., linestyle="dashed")
@@ -328,7 +288,7 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
             Line2D([0], [0], color=color_merlin, linewidth=4, linestyle="-"),
             Line2D([0], [0], color=color_mcmc, linewidth=4, linestyle="-"),
         ]
-        # Same adaptive-fontsize reasoning as label_fontsize/fontsize_tick above.
+        # Same adaptive fontsize as label_fontsize/fontsize_tick above.
         legend_fontsize = max(20, 20 * N_plot / 5)
         axes[0, N_plot - 1].legend(
             legend_lines, ["Merlin", "Nautilus"], loc="upper right",
@@ -344,18 +304,13 @@ def plot_coverage_mode(config, output_path, n_test=1000):
     """
     Coverage/calibration plot for the best checkpoint in
     STORES.checkpoint_path, evaluated against the last n_test simulations in
-    the store. Delegates the actual diagnostic + plotting to
-    coverage.run_coverage_test (same one used during interactive/notebook use)
-    so both stay visually and behaviorally identical.
+    the store. Delegates to coverage.run_coverage_test so this stays
+    identical to interactive/notebook use.
 
-    Unlike the notebook flow (which reuses a store_samples already
-    preprocessed once for training), this is a fresh process with nothing to
-    reuse — so it slices the RAW store down to the last n_test simulations
-    (all run_coverage_test's default n_test=1000 ever uses) BEFORE whitening,
-    and reuses the checkpoint's own already-trained V_proj (recompute_pca
-    forced off) instead of re-deriving PCA from scratch. Whitening + PCA over
-    the full store otherwise costs several minutes and tens of GB of memory
-    for no benefit, since 99%+ of it would just be discarded.
+    Slices the raw store down to the last n_test simulations before
+    whitening, and reuses the checkpoint's own trained V_proj
+    (recompute_pca forced off) rather than re-deriving PCA — whitening/PCA
+    over the full store would cost minutes and tens of GB for no benefit.
     """
     setup_latex_style()
 

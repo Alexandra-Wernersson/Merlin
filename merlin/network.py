@@ -63,10 +63,8 @@ class Network(swyft.AdamWReduceLROnPlateau, swyft.SwyftModule):
         return tuple((i, j) for i in range(n) for j in range(n) if j > i)
 
     def configure_callbacks(self):
-        # Overrides swyft's AdamWReduceLROnPlateau.configure_callbacks default
-        # (which saves to Trainer's default_root_dir) to save to checkpoint_dir
-        # instead, so a trained network can be reloaded later without retraining
-        # (see inference.predict_from_checkpoint).
+        # Overrides swyft's default (saves to Trainer's default_root_dir) to
+        # save to checkpoint_dir instead, for later reload without retraining.
         early_stop = EarlyStopping(monitor="val_loss", patience=self.early_stopping_patience)
         checkpoint = ModelCheckpoint(
             dirpath=self.checkpoint_dir, filename="best",
@@ -79,18 +77,13 @@ class Network(swyft.AdamWReduceLROnPlateau, swyft.SwyftModule):
         s = self.norm(s)
         s = self.sequential(s)
 
-        # B["z"] is always the FULL PARAMS-width vector, at both training
-        # time (train.py hands swyft.SwyftDataModule the whole store; the
-        # z/noise-rolling contrastive-pairing trick in swyft's own
-        # SwyftModule._calc_loss doesn't change column count) and inference
-        # time (inference.infer/coverage.run_coverage_test always build
-        # prior_samples from a full-width z draw) — confirmed by reading
-        # swyft 0.4.5's SwyftTrainer.infer/predict_step, neither of which
-        # slices. When B also has a "derived" key (priors.resolve_inference_params
-        # was asked to infer at least one derived name), concatenate it
-        # before indexing — param_indices already lives in that concatenated
-        # space (PARAMS-space indices unchanged, derived-space indices
-        # offset by len(PARAMS), see resolve_inference_params).
+        # B["z"] is always the FULL PARAMS-width vector, both at training and
+        # inference time (neither swyft's contrastive pairing nor its
+        # infer/predict_step slice it). If B also has a "derived" key
+        # (some inferred param is derived), concatenate before indexing —
+        # param_indices already lives in that concatenated space
+        # (derived-space indices offset by len(PARAMS), see
+        # resolve_inference_params).
         z_full = torch.cat([B["z"], B["derived"]], dim=-1) if "derived" in B else B["z"]
         z = z_full[..., self.param_indices]
 

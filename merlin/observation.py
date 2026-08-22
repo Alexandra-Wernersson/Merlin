@@ -10,47 +10,33 @@ def generate_observation(config):
     Obtain an observation, apply Cholesky whitening, and save all outputs
     defined in config.
 
-    Independent of Fisher: if config["PRIORS"]["use_Fisher_priors"] is true,
-    config["PRIORS"]["finv_file"] must already exist (see simulate.simulate,
-    which runs fisher.run_fisher first if enabled, before this) — this
-    function only reads it via build_simulator, it never (re)computes it.
-    Safe to call repeatedly (e.g. once per merlin-train run, to pick up a
-    changed MOCK_OBS/FIDUCIAL without re-running Fisher or
-    re-simulating) — every call writes fresh to OBSERVATION.OBS/OBS_CHOLESKY/
-    LFID, which are train_<N>-scoped (config.populate_train_dir must be
-    called first to point them at a specific training run's subfolder).
+    If config["PRIORS"]["use_Fisher_priors"] is true, finv_file must already
+    exist (built by fisher.run_fisher); this function only reads it via
+    build_simulator, never recomputes it. Safe to call repeatedly (e.g. once
+    per merlin-train run) — always writes fresh to the train_<N>-scoped
+    OBSERVATION.OBS/OBS_CHOLESKY/LFID paths.
 
-    config["MOCK_OBS"] controls where the observation comes from:
-      - generate_from_fiducial: true (default if MOCK_OBS is absent) —
-        simulate C_ells and noise SEPARATELY from the fiducial cosmology, as
-        before ("path" is ignored, can be null). obs["z"] holds the true
-        fiducial parameter vector. obs["noise"] is a real sampled noise
-        realization (sim.get_sample_noise()) — always saved as part of the raw
-        obs, but only folded into obs_chol if add_noise_fid_obs is true
-        (default false, matching prior behavior — a noiseless observation for
-        inference).
-      - generate_from_fiducial: false — load an ALREADY-noisy data vector
-        (C_ells + noise combined — e.g. real data, where no clean/noise split
-        exists) from the plain .npy array at "path". obs has no "z" (no true
-        parameter vector for real data) and "noise" is zero (the loaded array
-        is stored as "C_ells" directly, since there's nothing left to split
-        out). add_noise_fid_obs is ignored in this branch.
+    config["MOCK_OBS"] controls the source:
+      - generate_from_fiducial: true (default) — simulate C_ells and noise
+        separately from the fiducial cosmology ("path" ignored). obs["z"]
+        holds the fiducial parameter vector; obs["noise"] is a real sampled
+        realization, folded into obs_chol only if add_noise_fid_obs is true
+        (default false, i.e. noiseless observation for inference).
+      - generate_from_fiducial: false — load an already-noisy data vector
+        from the .npy array at "path" (e.g. real data with no clean/noise
+        split). obs has no "z"; "noise" is zero and the loaded array is
+        stored as "C_ells" directly. add_noise_fid_obs is ignored here.
 
     Returns
     -------
     obs : dict
         Raw observation with keys 'C_ells', 'noise' (plus 'z' only when
-        generate_from_fiducial is true). 'noise' here is always the true,
-        un-added noise realization (or zero, in the loaded-file branch) —
-        unaffected by add_noise_fid_obs.
+        generate_from_fiducial is true).
     obs_chol : dict
-        Cholesky-whitened observation used for inference (keys 'C_ells',
-        'noise' — 'noise' is always zero here, a placeholder to match the
-        dict shape elsewhere; 'C_ells' includes noise whenever there's
-        nothing left to split out (generate_from_fiducial: false) or the
-        caller opted in via add_noise_fid_obs (generate_from_fiducial: true),
-        so it is not always literally noiseless — hence the plain
-        "cholesky" name rather than "cholesky_noiseless").
+        Cholesky-whitened observation for inference (keys 'C_ells', 'noise';
+        'noise' is always zero, a placeholder). 'C_ells' includes noise
+        whenever there's nothing left to split out or add_noise_fid_obs
+        opted in, so it isn't always literally noiseless.
     Lfid : np.ndarray
         Cholesky factor of the fiducial covariance.
     """

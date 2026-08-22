@@ -17,14 +17,10 @@ from .simulator import sample_correlated_noise
 
 def make_scale_cut_mask(config):
     """
-    Build a float mask that zeros out ell bins above the per-probe cutoffs
-    defined in config["ANALYSIS_VARIANTS"]["SCALE CUTS"].
+    Build a float mask (1.0 keep, 0.0 cut) that zeros out ell bins above the
+    per-probe cutoffs in config["ANALYSIS_VARIANTS"]["SCALE CUTS"].
 
     Data vector order: [WL (SHE-SHE), GGL (POS-SHE), GCph (POS-POS)]
-
-    Returns
-    -------
-    mask : np.ndarray, shape (N_data,)  — 1.0 to keep, 0.0 to cut
     """
     sc = config.get("ANALYSIS_VARIANTS", {}).get("SCALE CUTS") or {}
     lmax_wl  = sc.get("SHE_SHE", np.inf)
@@ -56,30 +52,23 @@ def select_data_probes(config):
     """
     Integer index array selecting which entries of the flattened 3x2pt data
     vector to keep, per config["ANALYSIS_VARIANTS"]["train_on_data"]:
-      "3x2pt" (default) -> everything (WL + GGL + GCph) — returns None (no
-                            selection needed; keeps the common case a no-op
-                            in preprocess/preprocess_obs).
-      "2x2pt"            -> GGL + GCph only (drops the WL/shear-shear block).
-      "WL"               -> WL only (drops GGL + GCph).
+      "3x2pt" (default) -> everything; returns None (no-op).
+      "2x2pt"           -> GGL + GCph only (drops WL/shear-shear).
+      "WL"              -> WL only.
 
-    Unlike make_scale_cut_mask (a soft 0/1 mask that keeps the vector length
-    fixed), this is an actual selection — the returned indices are meant to
-    be applied via np.take(..., axis=-1), which genuinely shrinks the data
-    vector fed into PCA/the network for "WL"/"2x2pt", not just zeroing parts
-    of it — the whole point being to train on a strict subset of the data,
-    analogous to how TRAINING.params_to_infer trains on a strict subset of
-    the parameters.
+    Unlike make_scale_cut_mask (a soft 0/1 mask, fixed length), this is a
+    real selection meant for np.take(..., axis=-1): it shrinks the data
+    vector fed into PCA/the network, to train on a strict subset of probes
+    (analogous to TRAINING.params_to_infer for parameters).
 
-    Data vector order: [WL (SHE-SHE)][GGL (POS-SHE)][GCph (POS-POS)] — see
-    Simulator.get_sample_Cls / make_scale_cut_mask.
+    Data vector order: [WL (SHE-SHE)][GGL (POS-SHE)][GCph (POS-POS)].
 
-    Note: "2x2pt" here means GGL+GCph (position-position + position-shear),
-    this project's own convention — not the cosmology-literature convention
-    of GCph auto + WL auto without their cross-correlation.
+    Note: "2x2pt" here is this project's own convention (GGL+GCph), not the
+    literature convention of GCph auto + WL auto without their cross-term.
 
     Returns
     -------
-    idx : np.ndarray of int, or None for "3x2pt" (keep everything, unsliced)
+    idx : np.ndarray of int, or None for "3x2pt"
     """
     mode = config.get("ANALYSIS_VARIANTS", {}).get("train_on_data", "3x2pt")
     if mode == "3x2pt":
@@ -143,16 +132,13 @@ def load_or_compute_pca(Cells_chol, config):
     Compute or load PCA projection matrix.
 
     config["PCA"]["recompute_pca"] controls the behaviour:
-    - true:  recompute from Cells_chol and save to PCA.SVD (train_<N>/aux_files/SVD.npy).
-    - false, PCA.pca_file set: copy that file to PCA.SVD, then load it -- reuse
-      a PCA already computed for another train_<N> against the same store when
-      nothing that would change the basis (ANALYSIS_VARIANTS, PCA.q/variance_cut)
-      differs, e.g. training on different params_to_infer or a different
-      network architecture. Keeps the existing train_<N>/aux_files/SVD.npy
-      layout instead of pointing elsewhere, so every train_<N> stays self-
-      contained/inspectable.
-    - false, PCA.pca_file unset: load directly from PCA.SVD, which must
-      already exist (e.g. re-running against this same train_<N>).
+    - true: recompute from Cells_chol, save to PCA.SVD (train_<N>/aux_files/SVD.npy).
+    - false, PCA.pca_file set: copy that file to PCA.SVD, then load it — reuse
+      a PCA already computed for another train_<N> against the same store
+      (valid only if nothing affecting the basis, e.g. ANALYSIS_VARIANTS or
+      PCA.q/variance_cut, differs). Keeps each train_<N>'s own SVD.npy
+      self-contained rather than pointing elsewhere.
+    - false, PCA.pca_file unset: load directly from PCA.SVD (must exist).
     """
     pca_cfg  = config["PCA"]
     pca_file = pca_cfg["SVD"]
@@ -188,29 +174,21 @@ def load_or_compute_pca(Cells_chol, config):
 def preprocess(store, Lfid, config):
     """
     Cholesky-whiten simulations, apply scale cuts, select which 3x2pt probes
-    to keep, compute PCA — all controlled by config["ANALYSIS_VARIANTS"],
-    applied here at preprocessing time rather than baked into the store
-    itself, so different train_<N> runs against the same store can vary them
-    independently without re-simulating.
+    to keep, compute PCA — all controlled by config["ANALYSIS_VARIANTS"] and
+    applied here (not baked into the store) so different train_<N> runs
+    against the same store can vary them independently without re-simulating.
 
     ANALYSIS_VARIANTS.train_on_data ("3x2pt"/"2x2pt"/"WL", default "3x2pt")
-    slices the data vector down to just the selected probe block(s) — see
-    select_data_probes — genuinely shrinking what's fed into PCA/the network,
-    not just masking it. Applied after SCALE CUTS, so a cut within a dropped
-    block is moot and a cut within a kept block still applies.
+    slices the data vector to the selected probe block(s) (select_data_probes),
+    applied after SCALE CUTS so a cut in a dropped block is moot.
 
-    If ANALYSIS_VARIANTS.regenerate_noise_samples is true, the store's own
-    noise samples are discarded and replaced with fresh ones drawn from the
-    CURRENT Lfid (i.e. CLOELIB_SETTINGS.covmat as configured for this training run,
-    which may differ from whatever covmat was active at simulation time) —
-    e.g. to retrain against a different noise covariance without re-running
-    the expensive C_ells physics. Not persisted anywhere: regenerating is
-    cheap (a single batched matmul) and storing it would just duplicate what's
-    already reproducible from Lfid, so it's redone fresh on every such call.
-    Draws via simulator.sample_correlated_noise (the same function
-    Simulator.get_sample_noise uses, batched) rather than reimplementing the
-    formula here, so this is provably the same noise distribution the
-    simulator itself would draw — not just a hopefully-equivalent one.
+    If ANALYSIS_VARIANTS.regenerate_noise_samples is true, the store's noise
+    is discarded and redrawn from the current Lfid (may differ from the
+    covmat active at simulation time), e.g. to retrain against a different
+    noise covariance without re-running the expensive C_ells physics. Not
+    persisted — cheap to redo, and reproducible from Lfid. Uses
+    simulator.sample_correlated_noise (same function Simulator.get_sample_noise
+    calls) so the distribution matches the simulator's exactly.
 
     Returns
     -------
@@ -259,11 +237,9 @@ def preprocess(store, Lfid, config):
         "C_ells": Cells_chol,
         "noise": noise_chol,
     }
-    # Only present if this store was simulated with CLOELIB_SETTINGS.add_derived
-    # set (see simulator.Simulator.build) -- propagate it through so
-    # Network.forward can select derived-space params_to_infer entries (see
-    # priors.resolve_inference_params); omitted entirely otherwise, so a
-    # store/config not using derived params trains exactly as before.
+    # Present only if the store was simulated with CLOELIB_SETTINGS.add_derived
+    # set; propagated so Network.forward can select derived-space
+    # params_to_infer entries (priors.resolve_inference_params).
     if "derived" in store:
         samples["derived"] = store["derived"]
 
@@ -275,9 +251,8 @@ def preprocess_obs(obs, Lfid, config=None):
     """
     Cholesky-whiten a single observation and return a noiseless swyft.Sample.
     Pass config to apply the same scale cuts / probe selection used during
-    training (ANALYSIS_VARIANTS.SCALE CUTS / train_on_data) — required for
-    the result to have the same width the trained network (and its PCA
-    projection) actually expects; see preprocess.
+    training (ANALYSIS_VARIANTS.SCALE CUTS / train_on_data), required for the
+    result to match the width the trained network expects; see preprocess.
     """
     print("Whitening observation (Cholesky transform)...")
     Cells_chol, noise_chol = apply_cholesky(obs, Lfid)
