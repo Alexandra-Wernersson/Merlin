@@ -66,7 +66,14 @@ def load_mcmc_overlay(config):
     nested sampling has none).
 
     Expects a Nautilus-format .npz: a 0-d object array "chain" (.item() gives
-    the dict above) and a "weights" array of log-weights.
+    the dict above) and a "weights" array of log-weights. If a sibling 0-d
+    object array "derived" is present (confirmed present in every Nautilus
+    chain generated so far, holding {"sigma8_0": array} — see
+    params.MCMC_KEY_MAP), its entries are merged into the same returned
+    dict, so an overlay for a derived params_to_infer entry (currently only
+    sigma8 has a chain-side equivalent) works via the same
+    MCMC_KEY_MAP[name]/chain_dict[key] lookup mcmc_samples_for already uses
+    for PARAMS-space names — no separate code path needed there.
     """
     chain_path = config.get("PLOTTING", {}).get("mcmc_path")
     if not chain_path:
@@ -74,6 +81,8 @@ def load_mcmc_overlay(config):
 
     data = np.load(chain_path, allow_pickle=True)
     chain_dict = data["chain"].item()
+    if "derived" in data:
+        chain_dict = {**chain_dict, **data["derived"].item()}
     logw = np.asarray(data["weights"], dtype=np.float64)
     weights = np.exp(logw - logw.max())
     weights /= weights.sum()
@@ -99,7 +108,7 @@ def mcmc_samples_for(param_names, chain_dict, weights):
 def plot_corner_mode(config, output_path, smooth=None, bins=None):
     """
     Corner plot of every TRAINING.params_to_infer parameter (LaTeX labels from
-    params.PARAM_LABELS, fiducial truth lines from FIDUCIAL VALUES), evaluated
+    params.PARAM_LABELS, fiducial truth lines from FIDUCIAL), evaluated
     on the mock observation using the best checkpoint in STORES.checkpoint_path.
 
     smooth, bins : Gaussian-kernel smoothing and bin count passed to
@@ -130,7 +139,7 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
 
     param_names, param_indices = resolve_inference_params(config)
     fiducial, _, _, _ = resolve_priors(config)
-    truth = [fiducial[i] for i in param_indices]
+    n_params = len(fiducial)
     N_plot = len(param_names)
     marginals = Network._get_marginals(N_plot)
 
@@ -138,6 +147,18 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     Lfid   = np.load(config["OBSERVATION"]["LFID"])
     obs    = np.load(config["OBSERVATION"]["OBS"], allow_pickle=True).item()
     obs_sample = preprocess_obs(obs, Lfid, config=config)
+
+    # Truth/axvline value for each inferred parameter. PARAMS-space indices
+    # (< n_params) come from FIDUCIAL as before; derived-space indices
+    # (>= n_params, see priors.resolve_inference_params's concatenated index
+    # space) have no FIDUCIAL entry at all (they're computed, not sampled) —
+    # their truth instead comes from the observation's own "derived" array,
+    # which generate_observation() already populated at the fiducial
+    # cosmology for free (see simulator.Simulator.generate_observation).
+    truth = [
+        fiducial[i] if i < n_params else obs["derived"][i - n_params]
+        for i in param_indices
+    ]
 
     predictions = predict_from_checkpoint(_checkpoint_path(config), V_proj, obs_sample, config)
 
@@ -199,11 +220,17 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     # a plain (untruncated) Normal gets an explicit mean +/- N*sigma window
     # instead, since it has no hard bounds of its own (fixed-type parameters
     # keep swyft's auto range — they have no meaningful "prior range", since
-    # they're never sampled/varied at all).
+    # they're never sampled/varied at all). Derived-space indices (>= n_params)
+    # are skipped entirely — a deterministic, computed quantity (sigma8/
+    # Omega_m/S8) has no torch.distributions prior object at all, so those
+    # axes just keep swyft's own auto-range, same as any other
+    # no-override parameter.
     NORMAL_RANGE_NSIGMA = 5
     sim = build_simulator(config)
     prior_ranges = {}
     for i, idx in enumerate(param_indices):
+        if idx >= n_params:
+            continue
         prior = sim.sample_z.priors[idx]
         if isinstance(prior, Uniform):
             prior_ranges[i] = (prior.low.item(), prior.high.item())

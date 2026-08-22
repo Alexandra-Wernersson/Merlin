@@ -15,7 +15,7 @@ def generate_observation(config):
     which runs fisher.run_fisher first if enabled, before this) — this
     function only reads it via build_simulator, it never (re)computes it.
     Safe to call repeatedly (e.g. once per merlin-train run, to pick up a
-    changed MOCK_OBS/FIDUCIAL VALUES without re-running Fisher or
+    changed MOCK_OBS/FIDUCIAL without re-running Fisher or
     re-simulating) — every call writes fresh to OBSERVATION.OBS/OBS_CHOLESKY/
     LFID, which are train_<N>-scoped (config.populate_train_dir must be
     called first to point them at a specific training run's subfolder).

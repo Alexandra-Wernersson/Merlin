@@ -14,7 +14,7 @@ _PATH_KEYS = {
     "OBSERVATION": ["OBS", "OBS_CHOLESKY", "LFID"],
     # ell may hold an inline array instead of a file path (see io.load_array);
     # non-string values are left untouched by the resolution loop below.
-    "AUX FILES": ["covmat", "nz", "ell"],
+    "CLOELIB_SETTINGS": ["covmat", "nz", "ell"],
     "PCA": ["SVD", "pca_file"],
     "STORES": ["checkpoint_path", "plots_dir", "csv_logs"],
     "SIMULATION": ["store_path"],

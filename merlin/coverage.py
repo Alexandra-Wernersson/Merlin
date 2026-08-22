@@ -1,6 +1,7 @@
 import swyft
 
-from .params import PARAM_LABELS
+from .inference import _derived_prior_samples
+from .params import DERIVED_PARAMS, PARAM_LABELS
 from .priors import resolve_inference_params
 from .simulator import build_simulator
 
@@ -23,13 +24,21 @@ def run_coverage_test(trainer, network, store_samples, config, output_path,
     Simulator/PriorSampler as training (see inference.infer for why — this
     keeps the coverage test's prior consistent with the training prior for
     every parameter, including the Gaussian-distributed photo-z dimensions).
+    If any inferred parameter is derived (sigma8/Omega_m/S8), the prior
+    samples instead reuse the training store's own ("z", "derived") pairs
+    (see inference._derived_prior_samples) rather than a fresh draw — there
+    is no closed-form/independently-samplable prior for a deterministic,
+    correlated pushforward quantity like sigma8.
     """
     import matplotlib.pyplot as plt
 
     param_names, param_indices = resolve_inference_params(config)
 
-    sim = build_simulator(config)
-    prior_samples = swyft.Samples(z=sim.sample_z(shape=(n_prior,)))
+    if any(name in DERIVED_PARAMS for name in param_names):
+        prior_samples = _derived_prior_samples(config, n_prior)
+    else:
+        sim = build_simulator(config)
+        prior_samples = swyft.Samples(z=sim.sample_z(shape=(n_prior,)))
 
     n_test     = min(n_test, len(store_samples["noise"]))
     test_store = store_samples[-n_test:]

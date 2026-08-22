@@ -18,8 +18,8 @@ del _pd
 
 from .config import load_config, populate_train_dir
 from .params import (
-    PARAMS, COSMO_PARAMS, NUISANCE_KEYS, N_COSMO, ZS,
-    PARAM_GROUPS, PARAM_LABELS, MCMC_KEY_MAP, resolve_params,
+    PARAMS, DERIVED_PARAMS, COSMO_PARAMS, NUISANCE_KEYS, N_COSMO, ZS,
+    PARAM_GROUPS, PARAM_LABELS, MCMC_KEY_MAP, resolve_params, resolve_derived_names,
 )
 from .tracers import load_dndz
 from .priors import (

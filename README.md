@@ -57,12 +57,12 @@ merlin-train my_config.yaml
 Creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`, ... — never
 reuses or overwrites one) and drops a copy of the config used at
 `train_<N>/config.yaml`. Generates the fiducial observation fresh into it
-(per `MOCK_OBS`/`FIDUCIAL VALUES`), preprocesses the store (Cholesky
+(per `MOCK_OBS`/`FIDUCIAL`), preprocesses the store (Cholesky
 whitening, scale cuts, probe selection, PCA — projection saved to
 `train_<N>/aux_files/SVD.npy`), trains the network, and runs inference on
 that observation. Since preprocessing/the observation are both regenerated
-fresh on every run, you can change the network architecture, `ANALYSIS
-VARIANTS`, or `MOCK_OBS`/`FIDUCIAL VALUES` and re-run `merlin-train` to get a
+fresh on every run, you can change the network architecture,
+`ANALYSIS_VARIANTS`, or `MOCK_OBS`/`FIDUCIAL` and re-run `merlin-train` to get a
 new `train_<N>` against the *same* simulations — no need to re-run
 `merlin-simulate`. The best checkpoint (by validation loss) is saved to
 `train_<N>/best.ckpt` — no predictions are saved to disk; reload

@@ -3,7 +3,7 @@ import numpy as np
 # Redshift grid used by all tracers
 ZS = np.linspace(1e-4, 3, 100)
 
-# Parameter name lists — order must match the config [FIDUCIAL VALUES] section
+# Parameter name lists — order must match the config [FIDUCIAL] section
 COSMO_PARAMS       = ["H0", "Omega_b0", "Omega_cdm0", "ns", "ln10^{10}A_s"]
 # Background/perturbation parameters cloelib's CAMBBackground / HMemuNonLinearPerturbations
 # also take, but that aren't part of the network-inferred COSMO group (see PARAM_GROUPS).
@@ -19,6 +19,14 @@ WIDTH_SHEAR_PARAMS = [f"width_shear_{i}" for i in range(1, 14)]
 PARAMS        = (COSMO_PARAMS + EXTRA_COSMO_PARAMS + IA_PARAMS + GAL_BIAS_PARAMS + MAG_BIAS_PARAMS
                   + SHEAR_CALIB_PARAMS + PHOTOZ_PARAMS + WIDTH_POS_PARAMS + WIDTH_SHEAR_PARAMS)
 N_COSMO       = len(COSMO_PARAMS)
+
+# Derived (computed, not sampled) quantities — deterministic functions of the
+# sampled cosmology, optionally added as a "derived" swyft graph node (see
+# simulator.Simulator, CLOELIB_SETTINGS.add_derived). Kept separate from
+# PARAMS on purpose: PARAMS feeds PriorSampler/resolve_priors, which require
+# every entry to have a FIDUCIAL/PRIORS.params entry — derived quantities
+# have neither (no prior, nothing to sample).
+DERIVED_PARAMS = ["sigma8", "Omega_m", "S8"]   # canonical order
 # Everything after the network-inferred COSMO params, positionally matching z[N_COSMO:]
 # in Simulator.get_sample_Cls — includes EXTRA_COSMO_PARAMS (read directly there)
 # alongside the tracer nuisance params (read via get_position_tracer/get_shear_tracer).
@@ -37,6 +45,7 @@ PARAM_GROUPS = {
     "WIDTH_SHEAR": WIDTH_SHEAR_PARAMS,
     "NUISANCE":    NUISANCE_KEYS,
     "ALL":         PARAMS,
+    "DERIVED":     DERIVED_PARAMS,
 }
 
 # LaTeX labels for corner plots
@@ -60,6 +69,9 @@ PARAM_LABELS = {
     **{f"D_{i}":       rf"$\Delta z_{{{i}}}$" for i in range(1, 14)},
     **{f"width_pos_{i}":   rf"$w^{{\rm pos}}_{{{i}}}$" for i in range(1, 14)},
     **{f"width_shear_{i}": rf"$w^{{\rm she}}_{{{i}}}$" for i in range(1, 14)},
+    "sigma8":          r"$\sigma_8$",
+    "Omega_m":         r"$\Omega_m$",
+    "S8":              r"$S_8$",
 }
 
 
@@ -76,7 +88,36 @@ MCMC_KEY_MAP = {
     **{f"b_mag{i}": f"magnification_bias_{i}" for i in range(1, 14)},
     **{f"m_{i}":    f"multiplicative_bias_{i}" for i in range(1, 14)},
     **{f"D_{i}":    f"dz_pos_{i}" for i in range(1, 14)},
+    # sigma8 is stored under its own top-level "derived" key in Nautilus
+    # chain .npz files (not inside "chain" — see plotting.load_mcmc_overlay).
+    # No Omega_m/S8 equivalent exists in any chain generated so far.
+    "sigma8":       "sigma8_0",
 }
+
+
+def resolve_derived_names(add_derived):
+    """
+    Parse CLOELIB_SETTINGS.add_derived (null / a single name / a list of
+    names) into an ordered subset of DERIVED_PARAMS — always in
+    DERIVED_PARAMS' own canonical order, regardless of the order given in
+    config, so a "derived" graph node's column order is predictable and
+    matches what priors.resolve_inference_params computes offsets against.
+
+    Lives here (not simulator.py, which uses it, or priors.py, which also
+    needs it to compute correct per-store derived-column offsets) to avoid a
+    simulator.py <-> priors.py import cycle — both already import from this
+    module.
+    """
+    if not add_derived:
+        return ()
+    requested = {add_derived} if isinstance(add_derived, str) else set(add_derived)
+    unknown = requested - set(DERIVED_PARAMS)
+    if unknown:
+        raise ValueError(
+            f"CLOELIB_SETTINGS.add_derived names not in params.DERIVED_PARAMS: "
+            f"{sorted(unknown)} — choose from {DERIVED_PARAMS}"
+        )
+    return tuple(name for name in DERIVED_PARAMS if name in requested)
 
 
 def resolve_params(param_spec):

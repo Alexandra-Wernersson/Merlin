@@ -21,7 +21,7 @@ def main():
     print(f"Training run: train_{train_id}")
 
     # Regenerated fresh on every run (not reloaded from disk) so a changed
-    # MOCK_OBS/FIDUCIAL VALUES takes effect without re-running Fisher (part
+    # MOCK_OBS/FIDUCIAL takes effect without re-running Fisher (part
     # of cli/simulate.py) or re-simulating — see observation.generate_observation.
     _, _, Lfid = generate_observation(config)
 

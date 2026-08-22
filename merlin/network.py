@@ -79,13 +79,20 @@ class Network(swyft.AdamWReduceLROnPlateau, swyft.SwyftModule):
         s = self.norm(s)
         s = self.sequential(s)
 
-        z_full = B["z"]
-        # training: z_full has all N_pars columns → select by index
-        # inference: z_full already has only num_params_show columns
-        if z_full.shape[-1] > self.num_params_show:
-            z = z_full[..., self.param_indices]
-        else:
-            z = z_full
+        # B["z"] is always the FULL PARAMS-width vector, at both training
+        # time (train.py hands swyft.SwyftDataModule the whole store; the
+        # z/noise-rolling contrastive-pairing trick in swyft's own
+        # SwyftModule._calc_loss doesn't change column count) and inference
+        # time (inference.infer/coverage.run_coverage_test always build
+        # prior_samples from a full-width z draw) — confirmed by reading
+        # swyft 0.4.5's SwyftTrainer.infer/predict_step, neither of which
+        # slices. When B also has a "derived" key (priors.resolve_inference_params
+        # was asked to infer at least one derived name), concatenate it
+        # before indexing — param_indices already lives in that concatenated
+        # space (PARAMS-space indices unchanged, derived-space indices
+        # offset by len(PARAMS), see resolve_inference_params).
+        z_full = torch.cat([B["z"], B["derived"]], dim=-1) if "derived" in B else B["z"]
+        z = z_full[..., self.param_indices]
 
         s1 = s.reshape(-1, self.num_params_show, self.num_feat_param)
         s2 = torch.stack(

@@ -45,9 +45,9 @@ def run_fisher(config, eps=1e-2):
     sim = Simulator(
         fiducial=fiducial,
         covmat=np.load(config["PRIORS"]["covmat_Fisher"])["Gauss"],
-        n_bins=config["AUX FILES"]["Nbin_z"],
+        n_bins=config["CLOELIB_SETTINGS"]["Nbin_z"],
         specs=specs,
-        ell_theory=load_array(config["AUX FILES"]["ell"]),
+        ell_theory=load_array(config["CLOELIB_SETTINGS"]["ell"]),
         dndz=load_dndz(config["PRIORS"]["nz_Fisher"]),
     )
 

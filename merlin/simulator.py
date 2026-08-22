@@ -8,7 +8,7 @@ from torch.distributions import Uniform, Normal
 import swyft
 
 from .io import load_array
-from .params import ZS, N_COSMO, NUISANCE_KEYS
+from .params import ZS, N_COSMO, NUISANCE_KEYS, resolve_derived_names
 from .priors import resolve_priors, apply_fisher_bounds, load_fisher_sigmas
 from .tracers import load_dndz, get_position_tracer, get_shear_tracer
 
@@ -124,7 +124,7 @@ def sample_correlated_noise(Lfid, shape=()):
     DAG sampling convention (one noise draw per graph.node call).
     shape=(n,): a batch of n independent draws in a single vectorized
     matmul, shape (n, n_data) — used by preprocessing.preprocess's
-    ANALYSIS VARIANTS.regenerate_noise_samples, for the same reason
+    ANALYSIS_VARIANTS.regenerate_noise_samples, for the same reason
     inference.infer batches sim.sample_z instead of looping swyft's own
     per-sample sample(). Both call sites go through this one function so
     "regenerate_noise_samples" is provably the same draw swyft's own
@@ -140,7 +140,7 @@ def sample_correlated_noise(Lfid, shape=()):
 
 class Simulator(swyft.Simulator):
 
-    def __init__(self, fiducial, covmat, n_bins, specs, ell_theory, dndz):
+    def __init__(self, fiducial, covmat, n_bins, specs, ell_theory, dndz, derived_names=()):
         super().__init__()
         self.transform_samples = swyft.to_numpy
         self.fiducial = fiducial
@@ -149,6 +149,7 @@ class Simulator(swyft.Simulator):
         self.dndz     = dndz
         self.sample_z = PriorSampler(specs, fiducial)
         self.Lfid     = np.linalg.cholesky(covmat)
+        self.derived_names = tuple(derived_names)
         self._build_keys()
 
     def _build_keys(self):
@@ -186,15 +187,26 @@ class Simulator(swyft.Simulator):
         nuisance = dict(zip(NUISANCE_KEYS, z[N_COSMO:]))
 
         # N_mnu is internally fixed to 1 (not a config-exposed parameter).
+        # z's entries are numpy.float32 scalars (PriorSampler stacks torch
+        # tensors, whose default dtype is float32, then .numpy()'s the
+        # result) -- cast explicitly to plain Python float. cloelib's
+        # CAMBBackground._set_neutrino_parameters runtime-checks
+        # isinstance(mnu, float) (numpy.float32 fails that check, unlike
+        # numpy.float64, and isn't a np.ndarray/Sequence either -- raises
+        # TypeError otherwise); casting the rest defensively too, since nothing
+        # here should ever legitimately need float32 precision.
         background = CAMBBackground(
-            H0=z[0], Omega_b0=z[1], Omega_cdm0=z[2],
-            w0=nuisance["w0"], wa=nuisance["wa"], Omega_k0=nuisance["Omega_k0"],
-            ns=z[3], As=np.exp(z[4]) / 1e10,
-            mnu=nuisance["mnu"], gamma_MG=nuisance["gamma_MG"], N_mnu=1,
+            H0=float(z[0]), Omega_b0=float(z[1]), Omega_cdm0=float(z[2]),
+            w0=float(nuisance["w0"]), wa=float(nuisance["wa"]), Omega_k0=float(nuisance["Omega_k0"]),
+            ns=float(z[3]), As=float(np.exp(z[4]) / 1e10),
+            mnu=float(nuisance["mnu"]), gamma_MG=float(nuisance["gamma_MG"]), N_mnu=1,
         )
         with _suppress_stdout():
             linear        = HMemuLinearPerturbations(background, ZS)
             perturbations = HMemuNonLinearPerturbations(background, linear, ZS, log10TAGN=nuisance["log10TAGN"])
+
+        if self.derived_names:
+            self._derived_values = self._compute_derived(background, perturbations)
 
         # CIA is internally fixed to 0.0134 (not a config-exposed parameter).
         nuisance["CIA"] = 0.0134
@@ -213,12 +225,39 @@ class Simulator(swyft.Simulator):
 
         return np.concatenate([vec_WL, vec_GGL, vec_GCph])
 
+    def _compute_derived(self, background, perturbations):
+        """
+        sigma8/Omega_m/S8 from the SAME background/perturbations objects
+        get_sample_Cls already built for C_ells (near-zero marginal cost) —
+        matches /home/abellan/CLOE_NEW/cloelib-swyft/cloe_swyft_simulator.ipynb's
+        pattern. Only computes what self.derived_names actually asked for;
+        returns an array ordered per params.DERIVED_PARAMS (not
+        self.derived_names' order), the same order get_derived_params/the
+        "derived" graph node expose downstream.
+        """
+        need_omega_m = "Omega_m" in self.derived_names or "S8" in self.derived_names
+        need_sigma8  = "sigma8"  in self.derived_names or "S8" in self.derived_names
+
+        omega_m = float(background.Omega_m(0.0)) if need_omega_m else None
+        sigma8  = float(perturbations.sigma8_0()) if need_sigma8 else None
+        values = {
+            "sigma8":  sigma8,
+            "Omega_m": omega_m,
+            "S8":      sigma8 * (omega_m / 0.3) ** 0.5 if "S8" in self.derived_names else None,
+        }
+        return np.array([values[name] for name in self.derived_names], dtype=np.float64)
+
+    def get_derived_params(self):
+        return self._derived_values
+
     def get_sample_noise(self):
         return sample_correlated_noise(self.Lfid)
 
     def build(self, graph):
         z      = graph.node("z",      self.sample_z)
         C_ells = graph.node("C_ells", self.get_sample_Cls, z)
+        if self.derived_names:
+            derived = graph.node("derived", self.get_derived_params)
         noise  = graph.node("noise",  self.get_sample_noise)
 
 
@@ -251,12 +290,14 @@ def build_simulator(config):
         scale  = config["PRIORS"].get("sigma_scale", 5)
         specs  = apply_fisher_bounds(specs, fiducial, varied_indices, sigmas, scale)
 
-    covmat     = np.load(config["AUX FILES"]["covmat"])["Gauss"]
-    n_bins     = config["AUX FILES"]["Nbin_z"]
-    ell_theory = load_array(config["AUX FILES"]["ell"])
-    dndz       = load_dndz(config["AUX FILES"]["nz"])
+    covmat     = np.load(config["CLOELIB_SETTINGS"]["covmat"])["Gauss"]
+    n_bins     = config["CLOELIB_SETTINGS"]["Nbin_z"]
+    ell_theory = load_array(config["CLOELIB_SETTINGS"]["ell"])
+    dndz       = load_dndz(config["CLOELIB_SETTINGS"]["nz"])
+    derived_names = resolve_derived_names(config["CLOELIB_SETTINGS"].get("add_derived"))
 
     return Simulator(
         fiducial=fiducial, covmat=covmat, n_bins=n_bins,
         specs=specs, ell_theory=ell_theory, dndz=dndz,
+        derived_names=derived_names,
     )

@@ -2,7 +2,7 @@ RUN:
   # Full path to this run's output folder (base_dir/run_name).
   run_dir: output/run_name
 
-FIDUCIAL VALUES:
+FIDUCIAL:
   # The full set of cosmological + nuisance parameters, used as the fiducial
   # cosmology for the mock observation and Fisher analysis. Keyed by
   # params.PARAMS's canonical names (matched by name, not position,
@@ -91,10 +91,10 @@ FIDUCIAL VALUES:
   width_shear_13: 1.0
 
 PRIORS:
-  # One entry per name in FIDUCIAL VALUES / params.PARAMS (validated by
+  # One entry per name in FIDUCIAL / params.PARAMS (validated by
   # priors.resolve_priors — every name must appear exactly once, in both
   # sections, matched by name not position):
-  #   {type: fixed}                        -> held at its FIDUCIAL VALUES value,
+  #   {type: fixed}                        -> held at its FIDUCIAL value,
   #                                           never sampled, not selectable via
   #                                           TRAINING.params_to_infer.
   #   {type: uniform, lower: a, upper: b}   -> Uniform(a, b)
@@ -105,7 +105,7 @@ PRIORS:
   use_Fisher_priors: true
   sigma_scale: 7
   # covmat_Fisher/nz_Fisher are used ONLY for the Fisher matrix computation --
-  # distinct from AUX FILES.covmat / AUX FILES.nz used for simulation/observation.
+  # distinct from CLOELIB_SETTINGS.covmat / CLOELIB_SETTINGS.nz used for simulation/observation.
   covmat_Fisher: aux_files/covariance_Gauss_13245_2D_format_probe_zpair_scale.npz
   nz_Fisher: aux_files/nzTabSPV3_euclidlib_format.fits
   # finv_file is auto-derived from RUN.run_dir; do not set by hand.
@@ -209,7 +209,7 @@ MOCK_OBS:
   # true  -> adds a random noise realization to the fiducial observation.
   add_noise_fid_obs: false
 
-AUX FILES:
+CLOELIB_SETTINGS:
   # covmat/nz used for simulation, observation generation, and preprocessing —
   # everything except the Fisher matrix computation itself (see
   # PRIORS.covmat_Fisher / PRIORS.nz_Fisher).
@@ -226,6 +226,12 @@ AUX FILES:
     945.53682628, 1130.02613377, 1350.51224608, 1614.01871364, 1928.93949355,
     2305.30633773, 2755.10835283
   ]
+  # Optional: also compute/store derived (not sampled) cosmology quantities
+  # per simulation, as a "derived" node alongside C_ells/noise -- selectable
+  # in TRAINING.params_to_infer like any other parameter (e.g. [H0, sigma8]),
+  # or via the "DERIVED" group name for all three. null (default) -> none.
+  # Accepts "sigma8", "Omega_m", "S8" -- one name, or a list of any subset.
+  add_derived: null
 
 
 SIMULATION:
@@ -239,16 +245,16 @@ SIMULATION:
   add_extra_sims: false
 
 
-ANALYSIS VARIANTS:
+ANALYSIS_VARIANTS:
   # Modifications applied to the data AFTER the simulation store has been generated 
-  # Different train_<N> runs against the same store can use different ANALYSIS VARIANTS settings.
+  # Different train_<N> runs against the same store can use different ANALYSIS_VARIANTS settings.
   SCALE CUTS:
     SHE_SHE: 1500   # ell_max for WL spectra
     POS_SHE: 750    # ell_max for GGL cross-spectra
     POS_POS: 750    # ell_max for GCph spectra
   # false -> use the store's original noise samples as-is.
   # true  -> discard them and draw N_sims fresh noise realizations from the
-  #          current AUX FILES.covmat (Lfid) instead.
+  #          current CLOELIB_SETTINGS.covmat (Lfid) instead.
   regenerate_noise_samples: false
   # Which probes to train on, applied after SCALE CUTS:
   #   3x2pt -> WL + GGL + GCph
@@ -259,9 +265,11 @@ ANALYSIS VARIANTS:
 
 PCA:
   # false -> reuse a cached basis: PCA.SVD if already present, or copied in
-  # from another train_<N>'s SVD.npy if pca_file (optional, not shown here)
-  # is set.
+  # from another train_<N>'s SVD.npy if pca_file is set.
   recompute_pca: true
+  # Only used when recompute_pca is false: another train_<N>'s SVD.npy to
+  # reuse; leave unset to load this train_<N>'s own (must already exist).
+  # pca_file: /path/to/output/run_name/train_<N>/aux_files/SVD.npy
   q: 500          # max number of components kept
   variance_cut: 0.001   # min percent variance a component must explain to be kept
 

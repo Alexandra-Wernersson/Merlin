@@ -3,6 +3,7 @@ import shutil
 import time
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import swyft
 from joblib import Parallel, delayed
@@ -10,6 +11,51 @@ from tqdm import tqdm
 
 from .io import format_duration
 from .simulator import build_simulator
+
+
+_GROWTH_CONSISTENCY_SECTIONS = ("FIDUCIAL", "PRIORS", "CLOELIB_SETTINGS")
+
+
+def _check_growth_consistency(config, run_dir):
+    """
+    Before growing an existing store (SIMULATION.add_extra_sims), verify this
+    config's FIDUCIAL/PRIORS/CLOELIB_SETTINGS sections -- everything
+    build_simulator actually reads to decide what gets simulated -- exactly
+    match whatever config produced the store's existing rows. Without this,
+    growing a store with e.g. different PRIORS.sigma_scale or a different
+    CLOELIB_SETTINGS.add_derived would silently mix incompatible
+    simulations into one store. cli/simulate.py always saves a copy of the
+    config used to run_dir/config.yaml on every merlin-simulate call
+    (including previous growth calls), so that's the reference.
+    NETWORK/TRAINING/PCA/PLOTTING are intentionally not checked -- those are
+    training-time choices that already vary independently per train_<N>
+    slot against the same store.
+    """
+    from .config import load_config
+
+    old_config_path = run_dir / "config.yaml"
+    if not old_config_path.exists():
+        raise ValueError(
+            f"SIMULATION.add_extra_sims is true but no saved config.yaml was "
+            f"found at {old_config_path} to check consistency against."
+        )
+    old_config = load_config(str(old_config_path))
+
+    for section in _GROWTH_CONSISTENCY_SECTIONS:
+        old_val = old_config.get(section, {}) or {}
+        new_val = config.get(section, {}) or {}
+        if old_val == new_val:
+            continue
+        for key in set(old_val) | set(new_val):
+            if old_val.get(key) != new_val.get(key):
+                raise ValueError(
+                    f"SIMULATION.add_extra_sims is true but {section}.{key} "
+                    f"differs from the config that produced this store's "
+                    f"existing simulations: was {old_val.get(key)!r}, now "
+                    f"{new_val.get(key)!r}. Growing a store with different "
+                    f"simulation settings would silently mix incompatible "
+                    f"rows -- simulate a fresh store instead."
+                )
 
 
 def simulate(config):
@@ -31,8 +77,10 @@ def simulate(config):
     at store_path to the new (larger) N_sims via ZarrStore.reset_length, then
     fill the newly added slots — instead of creating a separate store. Raises
     ValueError if no store exists yet at store_path, or if N_sims is not
-    strictly larger than the store's current length. Leave false for the
-    normal create-or-resume-up-to-N_sims behaviour.
+    strictly larger than the store's current length, or if this config's
+    FIDUCIAL/PRIORS/CLOELIB_SETTINGS sections differ from whatever config
+    produced the store's existing rows (see _check_growth_consistency).
+    Leave false for the normal create-or-resume-up-to-N_sims behaviour.
     """
     if config["PRIORS"].get("use_Fisher_priors", False):
         from .fisher import run_fisher
@@ -76,6 +124,7 @@ def simulate(config):
                 f"SIMULATION.add_extra_sims is true but N_sims ({N_sims}) must "
                 f"be larger than the existing store's current length ({current_len})."
             )
+        _check_growth_consistency(config, Path(config["RUN"]["run_dir"]))
         _log(f"Growing store from {current_len} to {N_sims} simulations")
         store.reset_length(N_sims)
 

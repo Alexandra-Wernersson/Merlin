@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .params import PARAMS, PARAM_GROUPS
+from .params import PARAMS, PARAM_GROUPS, resolve_derived_names
 
 _KIND_ALIASES = {"fixed": "fixed", "uniform": "uniform", "normal": "normal", "norm": "normal"}
 
@@ -47,7 +47,7 @@ def _parse_entry(name, entry):
 
 def resolve_priors(config):
     """
-    Cross-validate config["FIDUCIAL VALUES"] and config["PRIORS"]["params"]
+    Cross-validate config["FIDUCIAL"] and config["PRIORS"]["params"]
     against params.PARAMS (every one of the 50 canonical names must appear in
     both, no extras — raises ValueError naming the mismatch otherwise), and
     resolve them into PARAMS-ordered, name-independent structures.
@@ -59,7 +59,7 @@ def resolve_priors(config):
     varied_names   : list[str]  — PARAMS-order subset with kind != "fixed".
     varied_indices : list[int]  — their positions in PARAMS.
     """
-    fiducial_cfg = config["FIDUCIAL VALUES"]
+    fiducial_cfg = config["FIDUCIAL"]
     priors_params = config["PRIORS"]["params"]
 
     params_set = set(PARAMS)
@@ -67,7 +67,7 @@ def resolve_priors(config):
     extra_fid   = set(fiducial_cfg) - params_set
     if missing_fid or extra_fid:
         raise ValueError(
-            "FIDUCIAL VALUES does not match params.PARAMS exactly: "
+            "FIDUCIAL does not match params.PARAMS exactly: "
             f"missing={sorted(missing_fid)}, unexpected={sorted(extra_fid)}"
         )
     missing_pr = params_set - set(priors_params)
@@ -166,17 +166,38 @@ def load_fisher_sigmas(finv_file, varied_indices, varied_names):
 def resolve_inference_params(config):
     """
     Resolve config["TRAINING"]["params_to_infer"] (default "COSMO") to (names,
-    indices) into the full PARAMS vector, validated against the varied
-    parameter set derived from resolve_priors(config).
+    indices), validated against the varied parameter set derived from
+    resolve_priors(config) for PARAMS-space names.
+
+    Each name is resolved against PARAMS first, then against THIS config's
+    own CLOELIB_SETTINGS.add_derived subset (sigma8/Omega_m/S8 — computed,
+    not sampled; see simulator.py's "derived" graph node) — NOT the full
+    params.DERIVED_PARAMS registry, since a store's actual "derived" array
+    only has as many columns as its own add_derived asked for (e.g.
+    add_derived: [Omega_m] alone produces a 1-column array with Omega_m at
+    position 0, not at DERIVED_PARAMS's canonical position 1) — indexing
+    against the full registry instead of this config's actual resolved
+    subset would silently grab the wrong column or go out of bounds for any
+    add_derived that isn't the full 3-name set. Indices are returned in a
+    CONCATENATED index space so network.py can gather from
+    torch.cat([z, derived], dim=-1) directly: PARAMS-space indices are
+    unchanged (0..len(PARAMS)-1); derived-space indices are offset by
+    len(PARAMS) and positioned per THIS config's add_derived order. This is
+    the single source of truth for that offset convention — callers must not
+    re-derive it.
 
     Raises
     ------
-    ValueError — naming any resolved parameter that is FIXED per
+    ValueError — naming any resolved PARAMS-space parameter that is FIXED per
     config["PRIORS"] (there is no prior/posterior to infer over a fixed
-    value).
+    value; this check doesn't apply to derived names, which have no PRIORS
+    entry at all — nothing to be "fixed" relative to).
+    ValueError — naming any resolved name that is in neither PARAMS nor this
+    config's CLOELIB_SETTINGS.add_derived.
     """
     _, _, varied_names, _ = resolve_priors(config)
     varied_set = set(varied_names)
+    store_derived_names = resolve_derived_names(config.get("CLOELIB_SETTINGS", {}).get("add_derived"))
 
     param_spec = config.get("TRAINING", {}).get("params_to_infer", "COSMO")
     if isinstance(param_spec, str):
@@ -188,12 +209,29 @@ def resolve_inference_params(config):
     else:
         names = list(param_spec)
 
-    fixed_selected = [name for name in names if name not in varied_set]
+    unknown = [
+        name for name in names
+        if name not in PARAMS and name not in store_derived_names
+    ]
+    if unknown:
+        raise ValueError(
+            f"TRAINING.params_to_infer names not found in params.PARAMS or "
+            f"this config's CLOELIB_SETTINGS.add_derived ({list(store_derived_names)}): "
+            f"{unknown}"
+        )
+
+    fixed_selected = [
+        name for name in names
+        if name in PARAMS and name not in store_derived_names and name not in varied_set
+    ]
     if fixed_selected:
         raise ValueError(
             f"TRAINING.params_to_infer selects parameter(s) marked 'fixed' in PRIORS: "
             f"{fixed_selected} — a fixed parameter has no prior/posterior to infer."
         )
 
-    indices = [PARAMS.index(name) for name in names]
+    indices = [
+        PARAMS.index(name) if name in PARAMS else len(PARAMS) + store_derived_names.index(name)
+        for name in names
+    ]
     return names, indices
