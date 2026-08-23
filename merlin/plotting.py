@@ -5,7 +5,7 @@ import numpy as np
 import swyft
 from torch.distributions import Normal, Uniform
 
-from .params import PARAM_LABELS, MCMC_KEY_MAP
+from .params import PARAM_LABELS, MCMC_KEY_MAP, resolve_derived_names
 from .priors import resolve_priors, resolve_inference_params
 from .io import load_array
 from .network import Network
@@ -52,6 +52,49 @@ def _hdi_thresholds(counts, cred_level=(0.68268, 0.95450)):
     return sorted(flat[idx])
 
 
+# sum(m_nu)[eV] = Omega_nu * h^2 * _NEUTRINO_H2_EV, standard relation for the
+# relic neutrino background (N_mnu=1 here, so sum(m_nu) is just FIDUCIAL.mnu).
+_NEUTRINO_H2_EV = 93.14
+
+
+def _add_mcmc_derived(chain_dict, config):
+    """
+    Compute Omega_m/S8 from the chain's own H0/Omega_b0/Omega_cdm0 (+ the
+    merged-in sigma8_0) when CLOELIB_SETTINGS.add_derived requests them --
+    Nautilus chains have no such columns. mnu is fixed at FIDUCIAL.mnu since
+    it isn't varied in the Nautilus run either.
+    """
+    requested = resolve_derived_names(config.get("CLOELIB_SETTINGS", {}).get("add_derived"))
+    if "Omega_m" not in requested and "S8" not in requested:
+        return chain_dict
+
+    h = chain_dict["H0"] / 100.0
+    Omega_nu = config["FIDUCIAL"]["mnu"] / (_NEUTRINO_H2_EV * h**2)
+    Omega_m = chain_dict["Omega_b0"] + chain_dict["Omega_cdm0"] + Omega_nu
+    chain_dict = {**chain_dict, "Omega_m": Omega_m}
+    if "S8" in requested:
+        chain_dict["S8"] = chain_dict["sigma8_0"] * np.sqrt(Omega_m / 0.3)
+    return chain_dict
+
+
+def _weighted_quantile_range(v, w, lo_q=0.001, hi_q=0.999, pad=0.3):
+    """
+    [lo_q, hi_q] weighted-quantile range of v under normalized weights w,
+    padded by `pad` of its width. Used to zoom derived-parameter axes
+    (sigma8/Omega_m/S8) to where the posterior actually has support, since
+    they have no prior object to fall back on (see the PRIORS-bounds block
+    in plot_corner_mode) and swyft's own auto-range spans the full store,
+    not the posterior.
+    """
+    order = np.argsort(v)
+    v_sorted, w_sorted = v[order], w[order]
+    cw = np.cumsum(w_sorted)
+    cw /= cw[-1]
+    lo, hi = np.interp([lo_q, hi_q], cw, v_sorted)
+    margin = pad * (hi - lo)
+    return lo - margin, hi + margin
+
+
 def load_mcmc_overlay(config):
     """
     Load the nested-sampling chain configured for corner-plot overlay, if any.
@@ -66,7 +109,9 @@ def load_mcmc_overlay(config):
     the dict above) and a "weights" log-weight array. A sibling "derived"
     0-d object array, if present (e.g. {"sigma8_0": array}), is merged into
     the same dict so a derived params_to_infer entry overlays through the
-    same MCMC_KEY_MAP lookup as PARAMS-space names.
+    same MCMC_KEY_MAP lookup as PARAMS-space names. Omega_m/S8, if requested
+    via CLOELIB_SETTINGS.add_derived, are computed from the chain itself
+    (see _add_mcmc_derived) since Nautilus never stored them directly.
     """
     chain_path = config.get("PLOTTING", {}).get("mcmc_path")
     if not chain_path:
@@ -76,6 +121,7 @@ def load_mcmc_overlay(config):
     chain_dict = data["chain"].item()
     if "derived" in data:
         chain_dict = {**chain_dict, **data["derived"].item()}
+    chain_dict = _add_mcmc_derived(chain_dict, config)
     logw = np.asarray(data["weights"], dtype=np.float64)
     weights = np.exp(logw - logw.max())
     weights /= weights.sum()
@@ -164,7 +210,7 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     color_mcmc   = "tab:orange"
 
     from matplotlib.colors import to_rgba
-    from swyft.lightning.utils import get_pdf
+    from swyft.lightning.utils import get_pdf, get_weighted_samples
 
     fig, axes = plt.subplots(N_plot, N_plot, figsize=(2.2 * N_plot, 2.2 * N_plot))
     swyft.plot_corner(
@@ -194,14 +240,18 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     # auto-scaling to the posterior sample spread — which for Normal-type
     # priors (e.g. m_i) can span far wider than where the marginal has
     # support. Uniform and Fisher-truncated Normal priors use their exact
-    # bounds; a plain Normal gets mean +/- N*sigma instead. Fixed and
-    # derived-space parameters have no meaningful prior range, so they keep
-    # swyft's auto-range.
+    # bounds; a plain Normal gets mean +/- N*sigma instead. Derived-space
+    # parameters (sigma8/Omega_m/S8) have no prior object — the store's full
+    # simulated range stands in for swyft's auto-range instead, which is
+    # similarly far wider than the posterior, so those axes are zoomed to a
+    # weighted-quantile range of the posterior samples themselves.
     NORMAL_RANGE_NSIGMA = 5
     sim = build_simulator(config)
     prior_ranges = {}
     for i, idx in enumerate(param_indices):
         if idx >= n_params:
+            v, w = get_weighted_samples(predictions, parnames[i])
+            prior_ranges[i] = _weighted_quantile_range(v.numpy().flatten(), w.numpy().flatten())
             continue
         prior = sim.sample_z.priors[idx]
         if isinstance(prior, Uniform):

@@ -120,7 +120,8 @@ def apply_fisher_bounds(specs, fiducial, varied_indices, sigmas, scale):
         spec = specs[i]
         sigma = sigmas[k]
         di_override = _DI_SIGMA_SCALE_OVERRIDE.get(spec.name)
-        p_scale = di_override * (scale / 5) if di_override is not None else scale
+        # temporary, just for testing
+        p_scale = di_override * (scale / 5) * 2 if di_override is not None else scale
         lower, upper = fiducial[i] - p_scale * sigma, fiducial[i] + p_scale * sigma
         if spec.kind == "uniform":
             new_specs[i] = PriorSpec(name=spec.name, kind="uniform", lower=lower, upper=upper)

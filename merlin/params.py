@@ -86,9 +86,12 @@ MCMC_KEY_MAP = {
     **{f"m_{i}":    f"multiplicative_bias_{i}" for i in range(1, 14)},
     **{f"D_{i}":    f"dz_pos_{i}" for i in range(1, 14)},
     # sigma8 sits under its own top-level "derived" key in Nautilus chain
-    # .npz files, not inside "chain" (see plotting.load_mcmc_overlay). No
-    # Omega_m/S8 equivalent exists yet.
+    # .npz files, not inside "chain" (see plotting.load_mcmc_overlay).
+    # Omega_m/S8 have no chain column either -- plotting.load_mcmc_overlay
+    # computes and injects them under these same key names.
     "sigma8":       "sigma8_0",
+    "Omega_m":      "Omega_m",
+    "S8":           "S8",
 }
 
 
