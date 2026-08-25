@@ -229,6 +229,10 @@ CLOELIB_SETTINGS:
   # Optional: compute/store derived quantities, selectable in
   # TRAINING.params_to_infer. null (default) or any of/list of sigma8, Omega_m, S8.
   add_derived: null
+  # Needs use_Fisher_priors: true and add_derived set. true -> during
+  # merlin-simulate, reject/redraw candidates whose derived quantities fall
+  # outside fiducial +/- 7*sigma_Fisher; false (default) = unchanged.
+  restrict_prior_for_derived: false
 
 
 SIMULATION:

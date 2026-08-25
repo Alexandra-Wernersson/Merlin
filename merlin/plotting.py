@@ -6,7 +6,9 @@ import swyft
 from torch.distributions import Normal, Uniform
 
 from .params import PARAM_LABELS, MCMC_KEY_MAP, resolve_derived_names
-from .priors import resolve_priors, resolve_inference_params
+from .priors import (
+    resolve_priors, resolve_inference_params, load_derived_fisher_sigmas, DERIVED_REJECTION_SIGMA_SCALE,
+)
 from .io import load_array
 from .network import Network
 from .inference import load_network_from_checkpoint, predict_from_checkpoint
@@ -241,17 +243,32 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     # priors (e.g. m_i) can span far wider than where the marginal has
     # support. Uniform and Fisher-truncated Normal priors use their exact
     # bounds; a plain Normal gets mean +/- N*sigma instead. Derived-space
-    # parameters (sigma8/Omega_m/S8) have no prior object — the store's full
-    # simulated range stands in for swyft's auto-range instead, which is
-    # similarly far wider than the posterior, so those axes are zoomed to a
-    # weighted-quantile range of the posterior samples themselves.
+    # parameters (sigma8/Omega_m/S8) have no prior object: if
+    # restrict_prior_for_derived was active for this store, its rows are
+    # already confined to fiducial +/- DERIVED_REJECTION_SIGMA_SCALE*sigma_Fisher
+    # (see simulator._sample_z_derived_rejection), so that's the correct,
+    # non-circular range to show -- using the posterior's own spread here
+    # would just reproduce whatever the network happened to learn on already-
+    # restricted training data. Otherwise (unrestricted store), swyft's own
+    # auto-range spans the whole store, far wider than the posterior, so
+    # those axes are zoomed to a weighted-quantile range of the posterior
+    # samples themselves instead.
     NORMAL_RANGE_NSIGMA = 5
     sim = build_simulator(config)
+    restrict_derived = config["CLOELIB_SETTINGS"].get("restrict_prior_for_derived", False)
+    if restrict_derived:
+        derived_plot_names = [param_names[i] for i, idx in enumerate(param_indices) if idx >= n_params]
+        derived_sigma, derived_fid = load_derived_fisher_sigmas(config["PRIORS"]["finv_file"], derived_plot_names)
     prior_ranges = {}
     for i, idx in enumerate(param_indices):
         if idx >= n_params:
-            v, w = get_weighted_samples(predictions, parnames[i])
-            prior_ranges[i] = _weighted_quantile_range(v.numpy().flatten(), w.numpy().flatten())
+            if restrict_derived:
+                name = param_names[i]
+                half_width = DERIVED_REJECTION_SIGMA_SCALE * derived_sigma[name]
+                prior_ranges[i] = (derived_fid[name] - half_width, derived_fid[name] + half_width)
+            else:
+                v, w = get_weighted_samples(predictions, parnames[i])
+                prior_ranges[i] = _weighted_quantile_range(v.numpy().flatten(), w.numpy().flatten())
             continue
         prior = sim.sample_z.priors[idx]
         if isinstance(prior, Uniform):

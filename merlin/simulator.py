@@ -8,9 +8,19 @@ from torch.distributions import Uniform, Normal
 import swyft
 
 from .io import load_array
-from .params import ZS, N_COSMO, NUISANCE_KEYS, resolve_derived_names
-from .priors import resolve_priors, apply_fisher_bounds, load_fisher_sigmas
+from .params import ZS, N_COSMO, NUISANCE_KEYS, resolve_derived_names, resolve_derived_box_names
+from .priors import (
+    resolve_priors, apply_fisher_bounds, load_fisher_sigmas, load_derived_fisher_box,
+)
 from .tracers import load_dndz, get_position_tracer, get_shear_tracer
+
+# Safety cap on consecutive rejections within _sample_z_derived_rejection,
+# for one row, before raising -- at the ~15-25% acceptance rates already
+# measured empirically (tests/derived_prior_rejection_check.py), reaching
+# this is astronomically unlikely for a correctly-configured box
+# (0.85**3000 ~ 1e-212), so hitting it means a broken box (e.g. stale
+# finv.npz), not bad luck.
+_MAX_CONSECUTIVE_REJECTIONS = 3000
 
 
 @contextlib.contextmanager
@@ -118,7 +128,8 @@ def sample_correlated_noise(Lfid, shape=()):
 
 class Simulator(swyft.Simulator):
 
-    def __init__(self, fiducial, covmat, n_bins, specs, ell_theory, dndz, derived_names=()):
+    def __init__(self, fiducial, covmat, n_bins, specs, ell_theory, dndz,
+                 derived_names=(), derived_box=None):
         super().__init__()
         self.transform_samples = swyft.to_numpy
         self.fiducial = fiducial
@@ -128,7 +139,42 @@ class Simulator(swyft.Simulator):
         self.sample_z = PriorSampler(specs, fiducial)
         self.Lfid     = np.linalg.cholesky(covmat)
         self.derived_names = tuple(derived_names)
+        # CLOELIB_SETTINGS.restrict_prior_for_derived: {name: (lo, hi)} for
+        # the subset of derived_names that gates acceptance in
+        # _sample_z_derived_rejection (see params.resolve_derived_box_names
+        # for which subset). Empty/falsy -> today's unrestricted behavior.
+        self.derived_box = dict(derived_box) if derived_box else {}
+        if not set(self.derived_box) <= set(self.derived_names):
+            raise ValueError(
+                f"derived_box names {sorted(self.derived_box)} must be a "
+                f"subset of derived_names {self.derived_names}"
+            )
+        self._n_generated = 0
+        self._n_accepted = 0
+        self._cached_z = None
+        self._cached_background = None
+        self._cached_perturbations = None
+        self._cached_nuisance = None
+        self._cached_derived_values = None
         self._build_keys()
+
+    def __getstate__(self):
+        # CAMB result objects (self._cached_background/_cached_perturbations)
+        # are explicitly not picklable (camb.results.CAMBdata.__getstate__
+        # raises). They're only ever a same-process, same-call cache
+        # (_sample_z_derived_rejection -> get_sample_Cls), so drop them on
+        # pickling -- e.g. when joblib dispatches this Simulator to a worker,
+        # or relays a worker exception back, which would otherwise try to
+        # pickle a live cache and fail (masking the real error). Losing the
+        # cache across a pickle boundary just means the next get_sample_Cls
+        # call recomputes instead of reusing it -- harmless.
+        state = self.__dict__.copy()
+        state["_cached_z"] = None
+        state["_cached_background"] = None
+        state["_cached_perturbations"] = None
+        state["_cached_nuisance"] = None
+        state["_cached_derived_values"] = None
+        return state
 
     def _build_keys(self):
         self.WL_keys = [
@@ -156,11 +202,17 @@ class Simulator(swyft.Simulator):
     def generate_observation(self):
         return self.sample(conditions={"z": np.array(self.fiducial)})
 
-    def get_sample_Cls(self, z):
+    def _background_perturbations(self, z):
+        """
+        CAMBBackground + HMemuLinearPerturbations + HMemuNonLinearPerturbations
+        for a full PARAMS-ordered z (background/perturbations only, no
+        Cls/tracers) -- single source of truth reused by get_sample_Cls,
+        _sample_z_derived_rejection's accept/reject loop, and
+        fisher.py's derived-quantity finite differencing.
+        """
         with _suppress_stdout():
             from cloelib.cosmology.HMcode2020Emu_cosmology import HMemuLinearPerturbations, HMemuNonLinearPerturbations
         from cloelib.cosmology.camb_cosmology import CAMBBackground
-        from cloelib.summary_statistics.angular_two_point import AngularTwoPoint
 
         nuisance = dict(zip(NUISANCE_KEYS, z[N_COSMO:]))
 
@@ -178,8 +230,22 @@ class Simulator(swyft.Simulator):
             linear        = HMemuLinearPerturbations(background, ZS)
             perturbations = HMemuNonLinearPerturbations(background, linear, ZS, log10TAGN=nuisance["log10TAGN"])
 
-        if self.derived_names:
-            self._derived_values = self._compute_derived(background, perturbations)
+        return background, perturbations, nuisance
+
+    def get_sample_Cls(self, z):
+        from cloelib.summary_statistics.angular_two_point import AngularTwoPoint
+
+        if self.derived_box and self._cached_z is z:
+            # Already vetted (and background/perturbations/derived already
+            # computed) by _sample_z_derived_rejection -- reuse rather than
+            # re-running cloelib for the same z a second time.
+            background, perturbations = self._cached_background, self._cached_perturbations
+            nuisance = dict(self._cached_nuisance)
+            self._derived_values = self._cached_derived_values
+        else:
+            background, perturbations, nuisance = self._background_perturbations(z)
+            if self.derived_names:
+                self._derived_values = self._compute_derived(background, perturbations)
 
         # CIA is internally fixed (not config-exposed).
         nuisance["CIA"] = 0.0134
@@ -224,8 +290,59 @@ class Simulator(swyft.Simulator):
     def get_sample_noise(self):
         return sample_correlated_noise(self.Lfid)
 
+    def _sample_z_derived_rejection(self):
+        """
+        z-node callback used instead of self.sample_z when self.derived_box
+        is set (CLOELIB_SETTINGS.restrict_prior_for_derived): draws a
+        candidate from the same Fisher-uniform COSMO box as always
+        (self.sample_z, unchanged), computes its derived quantities via
+        _background_perturbations/_compute_derived -- stopping short of
+        Cls/tracers/AngularTwoPoint, the whole point -- and accepts only if
+        every quantity in self.derived_box falls inside its (lo, hi). On
+        rejection, discards and redraws a fresh z (including nuisance
+        params) from scratch.
+
+        Caches the accepted z's background/perturbations/nuisance/derived
+        values as instance attributes so get_sample_Cls, invoked next on
+        this exact z object, reuses them via `is` identity instead of
+        recomputing. Only ever called with shape=() (one row at a time, per
+        the swyft graph's per-sample call pattern) -- not the batched
+        inference-time sample_z(shape=(n,)) path.
+
+        Raises RuntimeError after _MAX_CONSECUTIVE_REJECTIONS straight
+        rejections for one row with no acceptance (see that constant).
+        """
+        consecutive_rejections = 0
+        while True:
+            z = self.sample_z()
+            self._n_generated += 1
+
+            background, perturbations, nuisance = self._background_perturbations(z)
+            derived_values = self._compute_derived(background, perturbations)
+            derived = dict(zip(self.derived_names, derived_values))
+
+            if all(lo <= derived[name] <= hi for name, (lo, hi) in self.derived_box.items()):
+                self._n_accepted += 1
+                self._cached_z = z
+                self._cached_background = background
+                self._cached_perturbations = perturbations
+                self._cached_nuisance = nuisance
+                self._cached_derived_values = derived_values
+                return z
+
+            consecutive_rejections += 1
+            if consecutive_rejections >= _MAX_CONSECUTIVE_REJECTIONS:
+                raise RuntimeError(
+                    f"{_MAX_CONSECUTIVE_REJECTIONS} consecutive candidates rejected "
+                    f"by the derived-quantity prior box {self.derived_box} with no "
+                    "acceptance -- check FIDUCIAL matches the fiducial Fisher ran "
+                    "at, and that CLOELIB_SETTINGS.add_derived hasn't changed since "
+                    "finv.npz was last written (re-run Fisher if so)."
+                )
+
     def build(self, graph):
-        z      = graph.node("z",      self.sample_z)
+        z_fn  = self._sample_z_derived_rejection if self.derived_box else self.sample_z
+        z      = graph.node("z",      z_fn)
         C_ells = graph.node("C_ells", self.get_sample_Cls, z)
         if self.derived_names:
             derived = graph.node("derived", self.get_derived_params)
@@ -252,7 +369,8 @@ def build_simulator(config):
     """
     fiducial, specs, varied_names, varied_indices = resolve_priors(config)
 
-    if config["PRIORS"].get("use_Fisher_priors", False):
+    use_fisher = config["PRIORS"].get("use_Fisher_priors", False)
+    if use_fisher:
         sigmas = load_fisher_sigmas(config["PRIORS"]["finv_file"], varied_indices, varied_names)
         scale  = config["PRIORS"].get("sigma_scale", 5)
         specs  = apply_fisher_bounds(specs, fiducial, varied_indices, sigmas, scale)
@@ -263,8 +381,16 @@ def build_simulator(config):
     dndz       = load_dndz(config["CLOELIB_SETTINGS"]["nz"])
     derived_names = resolve_derived_names(config["CLOELIB_SETTINGS"].get("add_derived"))
 
+    # CLOELIB_SETTINGS.restrict_prior_for_derived: only meaningful with
+    # Fisher priors and >=1 derived quantity requested -- silent no-op
+    # (derived_box stays None) otherwise, see simulator.Simulator.build.
+    derived_box = None
+    if use_fisher and config["CLOELIB_SETTINGS"].get("restrict_prior_for_derived", False) and derived_names:
+        box_names = resolve_derived_box_names(derived_names)
+        derived_box = load_derived_fisher_box(config["PRIORS"]["finv_file"], box_names)
+
     return Simulator(
         fiducial=fiducial, covmat=covmat, n_bins=n_bins,
         specs=specs, ell_theory=ell_theory, dndz=dndz,
-        derived_names=derived_names,
+        derived_names=derived_names, derived_box=derived_box,
     )

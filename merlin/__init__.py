@@ -20,11 +20,12 @@ from .config import load_config, populate_train_dir
 from .params import (
     PARAMS, DERIVED_PARAMS, COSMO_PARAMS, NUISANCE_KEYS, N_COSMO, ZS,
     PARAM_GROUPS, PARAM_LABELS, MCMC_KEY_MAP, resolve_params, resolve_derived_names,
+    resolve_derived_box_names,
 )
 from .tracers import load_dndz
 from .priors import (
     PriorSpec, resolve_priors, apply_fisher_bounds, load_fisher_sigmas,
-    resolve_inference_params,
+    resolve_inference_params, load_derived_fisher_sigmas, load_derived_fisher_box,
 )
 from .simulator import Simulator, build_simulator, sample_correlated_noise
 from .preprocessing import (

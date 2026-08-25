@@ -25,16 +25,19 @@ def run_coverage_test(trainer, network, store_samples, config, output_path,
     parameter is derived (sigma8/Omega_m/S8), the prior samples instead
     reuse the training store's own ("z", "derived") pairs — there's no
     closed-form/independently-samplable prior for a deterministic,
-    correlated pushforward quantity like sigma8.
+    correlated pushforward quantity like sigma8. Also forced whenever
+    CLOELIB_SETTINGS.restrict_prior_for_derived was active for this store
+    (sim.derived_box non-empty), even for COSMO-only param_names — see
+    inference.infer's identical guard for why.
     """
     import matplotlib.pyplot as plt
 
     param_names, param_indices = resolve_inference_params(config)
+    sim = build_simulator(config)
 
-    if any(name in DERIVED_PARAMS for name in param_names):
+    if any(name in DERIVED_PARAMS for name in param_names) or sim.derived_box:
         prior_samples = _derived_prior_samples(config, n_prior)
     else:
-        sim = build_simulator(config)
         prior_samples = swyft.Samples(z=sim.sample_z(shape=(n_prior,)))
 
     n_test     = min(n_test, len(store_samples["noise"]))

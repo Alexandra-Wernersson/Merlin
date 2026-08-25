@@ -10,6 +10,8 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from .io import format_duration
+from .params import resolve_derived_names
+from .priors import load_derived_fisher_sigmas
 from .simulator import build_simulator
 
 
@@ -68,15 +70,14 @@ def simulate(config):
     CLOELIB_SETTINGS differ from what produced the existing rows (see
     _check_growth_consistency). Default false creates or resumes a store
     up to N_sims.
+
+    If CLOELIB_SETTINGS.restrict_prior_for_derived is also set (with
+    add_derived non-empty), each row is drawn via rejection sampling on a
+    second, tighter Fisher box over the derived quantities themselves (see
+    simulator.Simulator._sample_z_derived_rejection) -- as many candidate
+    cosmologies as needed are generated to fill the store with N_sims
+    *accepted* rows; the total generated/accepted counts are logged at the end.
     """
-    if config["PRIORS"].get("use_Fisher_priors", False):
-        from .fisher import run_fisher
-        print("Running Fisher analysis first...")
-        run_fisher(config)
-
-    def _log(msg):
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] | {msg}", flush=True)
-
     store_path = config["SIMULATION"]["store_path"]
     run_id     = config["SIMULATION"].get("run_id", "run")
     N_sims     = config["SIMULATION"]["N_sims"]
@@ -92,6 +93,22 @@ def simulate(config):
         datefmt="%Y-%m-%d %H:%M:%S",
         level=logging.INFO,
     )
+
+    def _log(msg):
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] | {msg}", flush=True)
+
+    if config["PRIORS"].get("use_Fisher_priors", False):
+        from .fisher import run_fisher
+        _log("Running Fisher analysis first...")
+        run_fisher(config)
+
+        derived_names = resolve_derived_names(config["CLOELIB_SETTINGS"].get("add_derived"))
+        if config["CLOELIB_SETTINGS"].get("restrict_prior_for_derived", False) and derived_names:
+            sigma_d, fid_d = load_derived_fisher_sigmas(config["PRIORS"]["finv_file"], derived_names)
+            for name in derived_names:
+                msg = f"Fisher sigma [{name}] = {sigma_d[name]:.6g}  (fiducial {fid_d[name]:.6g})"
+                _log(msg)
+                logging.info(msg)
 
     _log("Building simulator")
     sim = build_simulator(config)
@@ -138,21 +155,39 @@ def simulate(config):
         # reference; done per-worker since joblib processes re-import swyft.
         import swyft.lightning.simulator as _swyft_simulator_mod
         _swyft_simulator_mod.tqdm = lambda it, *a, **kw: it
+        # Deltas, not raw counts -- defensive against a loky worker process
+        # being reused across dispatches within the same Parallel() pool.
+        before_gen, before_acc = sim._n_generated, sim._n_accepted
         store.simulate(sim, max_sims=n, batch_size=n)
+        return sim._n_generated - before_gen, sim._n_accepted - before_acc
 
     _log("Starting simulations")
     start_len = len(store) - store.sims_required  # already-filled slots, excluded from the count below
+    total_generated = 0
+    total_accepted  = 0
     t0 = time.time()
     while store.sims_required > 0:
         remaining = store.sims_required
         jobs = min(n_workers, remaining // chunk_size + 1)
-        Parallel(n_jobs=jobs)(delayed(_chunk)(chunk_size) for _ in range(jobs))
+        results = Parallel(n_jobs=jobs)(delayed(_chunk)(chunk_size) for _ in range(jobs))
+        for gen, acc in results:
+            total_generated += gen
+            total_accepted  += acc
         done = N_sims - store.sims_required
         # Static tqdm-formatted bar as a log line, not tqdm's live \r-redraw
         # (unreadable when the log is viewed as a plain file).
         bar = tqdm.format_meter(n=done, total=N_sims, elapsed=time.time() - t0,
                                  unit="sim", prefix="Simulating")
         _log(bar)
+
+    if sim.derived_box:
+        frac = total_accepted / total_generated if total_generated else float("nan")
+        rejection_summary = (
+            f"Derived-quantity rejection sampling: {total_generated} cosmologies "
+            f"generated, kept {frac:.1%} of these"
+        )
+        _log(rejection_summary)
+        logging.info(rejection_summary)
 
     elapsed    = time.time() - t0
     n_generated = len(store) - start_len

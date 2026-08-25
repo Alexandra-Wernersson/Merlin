@@ -117,6 +117,21 @@ def resolve_derived_names(add_derived):
     return tuple(name for name in DERIVED_PARAMS if name in requested)
 
 
+def resolve_derived_box_names(derived_names):
+    """
+    Business rule for CLOELIB_SETTINGS.restrict_prior_for_derived: which of
+    add_derived's requested quantities gate rejection-sampling acceptance
+    in simulator.Simulator's derived_box. If all three of sigma8/Omega_m/S8
+    are requested, the box is on Omega_m and S8 only (sigma8 is still
+    computed/stored in the "derived" array, just doesn't gate acceptance);
+    for any other 1- or 2-name subset, the box is on exactly what's requested.
+    """
+    derived_names = tuple(derived_names)
+    if set(derived_names) == {"sigma8", "Omega_m", "S8"}:
+        return ("Omega_m", "S8")
+    return derived_names
+
+
 def resolve_params(param_spec):
     """
     Resolve a group name or list of parameter names to (names, indices).

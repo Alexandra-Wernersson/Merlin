@@ -120,8 +120,8 @@ def apply_fisher_bounds(specs, fiducial, varied_indices, sigmas, scale):
         spec = specs[i]
         sigma = sigmas[k]
         di_override = _DI_SIGMA_SCALE_OVERRIDE.get(spec.name)
-        # temporary, just for testing
-        p_scale = di_override * (scale / 5) * 2 if di_override is not None else scale
+        # Widening this (e.g. x2 or more) could help reduce the ns/logAs posterior shift relative to Nautilus 
+        p_scale = di_override * (scale / 5) if di_override is not None else scale
         lower, upper = fiducial[i] - p_scale * sigma, fiducial[i] + p_scale * sigma
         if spec.kind == "uniform":
             new_specs[i] = PriorSpec(name=spec.name, kind="uniform", lower=lower, upper=upper)
@@ -152,6 +152,46 @@ def load_fisher_sigmas(finv_file, varied_indices, varied_names):
         )
     Finv = data["Finv"]
     return np.sqrt(np.diag(Finv))
+
+
+# Hardcoded for now (independent of PRIORS.sigma_scale, which only governs
+# the COSMO-param box) -- see CLOELIB_SETTINGS.restrict_prior_for_derived.
+DERIVED_REJECTION_SIGMA_SCALE = 7.0
+
+
+def load_derived_fisher_sigmas(finv_file, derived_names):
+    """
+    Load delta-method Fisher sigmas + fiducial values for `derived_names`,
+    saved by fisher.run_fisher when restrict_prior_for_derived is on.
+    Raises ValueError if finv_file has no saved derived-quantity info (Fisher
+    ran before the flag was enabled), or is missing any of `derived_names`
+    (add_derived changed since) -- re-run Fisher either way.
+    """
+    data = np.load(finv_file, allow_pickle=False)
+    if "derived_names" not in data:
+        raise ValueError(
+            f"Fisher matrix at {finv_file!r} has no saved derived-quantity "
+            "sigmas -- restrict_prior_for_derived is on but Fisher was "
+            "computed before it was enabled. Re-run Fisher."
+        )
+    saved_names = list(data["derived_names"])
+    missing = [n for n in derived_names if n not in saved_names]
+    if missing:
+        raise ValueError(
+            f"Fisher matrix at {finv_file!r} has derived sigmas for "
+            f"{saved_names}, missing {missing} -- add_derived changed since "
+            "Fisher last ran. Re-run Fisher."
+        )
+    sigma = dict(zip(saved_names, data["derived_fisher_sigma"]))
+    fid   = dict(zip(saved_names, data["derived_fiducial"]))
+    return ({n: float(sigma[n]) for n in derived_names},
+            {n: float(fid[n]) for n in derived_names})
+
+
+def load_derived_fisher_box(finv_file, box_names, scale=DERIVED_REJECTION_SIGMA_SCALE):
+    """{name: (lower, upper)} = fiducial +/- scale*sigma_Fisher for box_names."""
+    sigma, fid = load_derived_fisher_sigmas(finv_file, box_names)
+    return {n: (fid[n] - scale * sigma[n], fid[n] + scale * sigma[n]) for n in box_names}
 
 
 def resolve_inference_params(config):

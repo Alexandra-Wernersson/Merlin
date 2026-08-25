@@ -49,17 +49,23 @@ def infer(trainer, network, obs_sample, config, n_samples=500_000):
     takes ~13 min at n_samples=500_000; sample_z is vectorized and takes
     under a second. If any inferred parameter is derived (sigma8/Omega_m/S8),
     "z"/"derived" pairs are reused from the training store instead (see
-    _derived_prior_samples).
+    _derived_prior_samples) -- also forced whenever
+    CLOELIB_SETTINGS.restrict_prior_for_derived was active for this store
+    (sim.derived_box non-empty), even for COSMO-only params_to_infer:
+    sample_z(shape=(n,)) draws from the *unrestricted* Fisher box (that
+    flag never touches PriorSampler itself, only simulate.py's rejection
+    loop), which would silently mismatch the network's actual training
+    distribution otherwise.
 
     Predictions are returned, not persisted -- cheap to recompute from a
     checkpoint (see predict_from_checkpoint).
     """
     print("Running inference...")
     names, _ = resolve_inference_params(config)
-    if any(name in DERIVED_PARAMS for name in names):
+    sim = build_simulator(config)
+    if any(name in DERIVED_PARAMS for name in names) or sim.derived_box:
         prior_samples = _derived_prior_samples(config, n_samples)
     else:
-        sim = build_simulator(config)
         prior_samples = swyft.Samples(z=sim.sample_z(shape=(n_samples,)))
 
     return trainer.infer(network, obs_sample, prior_samples)
