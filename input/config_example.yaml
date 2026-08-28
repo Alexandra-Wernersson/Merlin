@@ -1,0 +1,314 @@
+RUN:
+  # Full path to this run's output folder (base_dir/run_name).
+  run_dir: output/run_name
+
+FIDUCIAL:
+  # The full set of cosmological + nuisance parameters, used as the fiducial
+  # cosmology for the mock observation and Fisher analysis. Keyed by
+  # params.PARAMS's canonical names (matched by name, not position,
+  # against both this section and PRIORS.params — see priors.resolve_priors).
+  H0: 67.0
+  Omega_b0: 0.049
+  Omega_cdm0: 0.27
+  ns: 0.96
+  "ln10^{10}A_s": 3.0445
+  w0: -1
+  wa: 0
+  Omega_k0: 0.0
+  mnu: 0.077   # N_mnu is internally fixed to 1
+  gamma_MG: 0.545
+  log10TAGN: 7.75
+  A_IA: 0.16   # CIA is internally fixed to 0.0134
+  eta_IA: 1.66
+  b_g1: 1.33291
+  b_g2: -0.72414
+  b_g3: 1.01830
+  b_g4: -0.14913
+  b_mag1: 0.0
+  b_mag2: 0.0
+  b_mag3: 0.0
+  b_mag4: 0.0
+  b_mag5: 0.0
+  b_mag6: 0.0
+  b_mag7: 0.0
+  b_mag8: 0.0
+  b_mag9: 0.0
+  b_mag10: 0.0
+  b_mag11: 0.0
+  b_mag12: 0.0
+  b_mag13: 0.0
+  m_1: 0.0
+  m_2: 0.0
+  m_3: 0.0
+  m_4: 0.0
+  m_5: 0.0
+  m_6: 0.0
+  m_7: 0.0
+  m_8: 0.0
+  m_9: 0.0
+  m_10: 0.0
+  m_11: 0.0
+  m_12: 0.0
+  m_13: 0.0
+  D_1: 0.0
+  D_2: 0.0
+  D_3: 0.0
+  D_4: 0.0
+  D_5: 0.0
+  D_6: 0.0
+  D_7: 0.0
+  D_8: 0.0
+  D_9: 0.0
+  D_10: 0.0
+  D_11: 0.0
+  D_12: 0.0
+  D_13: 0.0
+  width_pos_1: 1.0
+  width_pos_2: 1.0
+  width_pos_3: 1.0
+  width_pos_4: 1.0
+  width_pos_5: 1.0
+  width_pos_6: 1.0
+  width_pos_7: 1.0
+  width_pos_8: 1.0
+  width_pos_9: 1.0
+  width_pos_10: 1.0
+  width_pos_11: 1.0
+  width_pos_12: 1.0
+  width_pos_13: 1.0
+  width_shear_1: 1.0
+  width_shear_2: 1.0
+  width_shear_3: 1.0
+  width_shear_4: 1.0
+  width_shear_5: 1.0
+  width_shear_6: 1.0
+  width_shear_7: 1.0
+  width_shear_8: 1.0
+  width_shear_9: 1.0
+  width_shear_10: 1.0
+  width_shear_11: 1.0
+  width_shear_12: 1.0
+  width_shear_13: 1.0
+
+PRIORS:
+  # One entry per name in FIDUCIAL / params.PARAMS (validated by
+  # priors.resolve_priors — every name must appear exactly once, in both
+  # sections, matched by name not position):
+  #   {type: fixed}                        -> held at its FIDUCIAL value,
+  #                                           never sampled, not selectable via
+  #                                           TRAINING.params_to_infer.
+  #   {type: uniform, lower: a, upper: b}   -> Uniform(a, b)
+  #   {type: normal,  mean: mu, sigma: s}   -> Normal(mu, s)
+  # If true, runs a Fisher analysis and overwrites every "uniform" entry's
+  # bounds with fiducial +/- sigma_scale*sigma_Fisher ("normal" entries keep
+  # their configured mean/sigma unchanged).
+  use_Fisher_priors: true
+  sigma_scale: 7
+  # covmat_Fisher/nz_Fisher are used ONLY for the Fisher matrix computation --
+  # distinct from CLOELIB_SETTINGS.covmat / CLOELIB_SETTINGS.nz used for simulation/observation.
+  covmat_Fisher: aux_files/covariance_Gauss_13245_2D_format_probe_zpair_scale.npz
+  nz_Fisher: aux_files/nzTabSPV3_euclidlib_format.fits
+  # finv_file is auto-derived from RUN.run_dir; do not set by hand.
+
+  params:
+    H0:             {type: uniform, lower: 50.0,  upper: 90.0}
+    Omega_b0:       {type: uniform, lower: 0.01,  upper: 0.09}
+    Omega_cdm0:     {type: uniform, lower: 0.10,  upper: 0.50}
+    ns:             {type: uniform, lower: 0.85,  upper: 1.05}
+    "ln10^{10}A_s": {type: uniform, lower: 2.50,  upper: 3.60}
+    w0:             {type: fixed}
+    wa:             {type: fixed}
+    Omega_k0:       {type: fixed}
+    mnu:            {type: fixed}
+    gamma_MG:       {type: fixed}
+    log10TAGN:      {type: fixed}
+    A_IA:           {type: uniform, lower: -5.0,  upper: 5.0}
+    eta_IA:         {type: uniform, lower: -5.0,  upper: 5.0}
+    b_g1:           {type: uniform, lower: -3.0,  upper: 4.0}
+    b_g2:           {type: uniform, lower: -3.0,  upper: 4.0}
+    b_g3:           {type: uniform, lower: -3.0,  upper: 4.0}
+    b_g4:           {type: uniform, lower: -3.0,  upper: 4.0}
+    b_mag1:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag2:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag3:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag4:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag5:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag6:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag7:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag8:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag9:         {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag10:        {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag11:        {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag12:        {type: uniform, lower: -3.0,  upper: 3.0}
+    b_mag13:        {type: uniform, lower: -3.0,  upper: 3.0}
+    m_1:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_2:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_3:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_4:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_5:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_6:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_7:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_8:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_9:            {type: normal, mean: 0.0, sigma: 0.01}
+    m_10:           {type: normal, mean: 0.0, sigma: 0.01}
+    m_11:           {type: normal, mean: 0.0, sigma: 0.01}
+    m_12:           {type: normal, mean: 0.0, sigma: 0.01}
+    m_13:           {type: normal, mean: 0.0, sigma: 0.01}
+    # D_i sigma = 0.002*(1+zmean_i), where per-bin mean redshift z_mean is given by 
+    # zmean: [0.2894, 0.3763, 0.4374, 0.5363, 0.6186, 0.7093, 0.802, 0.8591, 0.976, 1.093, 1.246, 1.489, 1.922]
+    D_1:            {type: normal, mean: 0.0, sigma: 0.0025788}  # 0.002*(1+0.2894)
+    D_2:            {type: normal, mean: 0.0, sigma: 0.0027526}  # 0.002*(1+0.3763)
+    D_3:            {type: normal, mean: 0.0, sigma: 0.0028748}  # 0.002*(1+0.4374)
+    D_4:            {type: normal, mean: 0.0, sigma: 0.0030726}  # 0.002*(1+0.5363)
+    D_5:            {type: normal, mean: 0.0, sigma: 0.0032372}  # 0.002*(1+0.6186)
+    D_6:            {type: normal, mean: 0.0, sigma: 0.0034186}  # 0.002*(1+0.7093)
+    D_7:            {type: normal, mean: 0.0, sigma: 0.003604}   # 0.002*(1+0.802)
+    D_8:            {type: normal, mean: 0.0, sigma: 0.0037182}  # 0.002*(1+0.8591)
+    D_9:            {type: normal, mean: 0.0, sigma: 0.003952}   # 0.002*(1+0.976)
+    D_10:           {type: normal, mean: 0.0, sigma: 0.004186}   # 0.002*(1+1.093)
+    D_11:           {type: normal, mean: 0.0, sigma: 0.004492}   # 0.002*(1+1.246)
+    D_12:           {type: normal, mean: 0.0, sigma: 0.004978}   # 0.002*(1+1.489)
+    D_13:           {type: normal, mean: 0.0, sigma: 0.005844}   # 0.002*(1+1.922)
+    # width_pos_i/width_shear_i: dndz stretch systematics, fixed at 1.0 (no stretch)
+    width_pos_1:    {type: fixed}
+    width_pos_2:    {type: fixed}
+    width_pos_3:    {type: fixed}
+    width_pos_4:    {type: fixed}
+    width_pos_5:    {type: fixed}
+    width_pos_6:    {type: fixed}
+    width_pos_7:    {type: fixed}
+    width_pos_8:    {type: fixed}
+    width_pos_9:    {type: fixed}
+    width_pos_10:   {type: fixed}
+    width_pos_11:   {type: fixed}
+    width_pos_12:   {type: fixed}
+    width_pos_13:   {type: fixed}
+    width_shear_1:  {type: fixed}
+    width_shear_2:  {type: fixed}
+    width_shear_3:  {type: fixed}
+    width_shear_4:  {type: fixed}
+    width_shear_5:  {type: fixed}
+    width_shear_6:  {type: fixed}
+    width_shear_7:  {type: fixed}
+    width_shear_8:  {type: fixed}
+    width_shear_9:  {type: fixed}
+    width_shear_10: {type: fixed}
+    width_shear_11: {type: fixed}
+    width_shear_12: {type: fixed}
+    width_shear_13: {type: fixed}
+
+MOCK_OBS:
+  # true  -> simulate C_ells and noise separately from the fiducial cosmology
+  #          (path ignored, can be left null) 
+  # false -> load an already-noisy data vector (C_ells + noise combined — e.g.
+  #          real data) from the .npy array at `path`. 
+  generate_from_fiducial: true
+  path: null
+  # Only used when generate_from_fiducial is true.
+  # false -> the fiducial observation used for inference has zero noise  
+  # true  -> adds a random noise realization to the fiducial observation.
+  add_noise_fid_obs: false
+
+CLOELIB_SETTINGS:
+  # covmat/nz used for simulation, observation generation, and preprocessing —
+  # everything except the Fisher matrix computation itself (see
+  # PRIORS.covmat_Fisher / PRIORS.nz_Fisher).
+  covmat: aux_files/covariance_Gauss_13245_2D_format_probe_zpair_scale.npz
+  nz: aux_files/nzTabSPV3_euclidlib_format.fits
+  Nbin_z: 13
+  # Accepts either a file path (string) or an inline list, as below.
+  ell: [
+    10.97557970, 13.11709027, 15.67644367, 18.73516773, 22.39069761,
+    26.75947964, 31.98068069, 38.22062129, 45.67807378, 54.59059412,
+    65.24208925, 77.97186088, 93.18541388, 111.36737359, 133.09692347,
+    159.06625492, 190.10261691, 227.19466787, 271.52396925, 324.50262398,
+    387.81825878, 463.48778323, 553.92163814, 662.00057974, 791.16744571,
+    945.53682628, 1130.02613377, 1350.51224608, 1614.01871364, 1928.93949355,
+    2305.30633773, 2755.10835283
+  ]
+  # Optional: compute/store derived quantities, selectable in
+  # TRAINING.params_to_infer. null (default) or any of/list of sigma8, Omega_m, S8.
+  add_derived: null
+  # Needs use_Fisher_priors: true and add_derived set. true -> during
+  # merlin-simulate, reject/redraw candidates whose derived quantities fall
+  # outside fiducial +/- 7*sigma_Fisher; false (default) = unchanged.
+  restrict_prior_for_derived: false
+
+
+SIMULATION:
+  # Settings for merlin-simulate's parallel store-filling loop.
+  N_sims: 100000
+  batch_size: 64
+  chunk_size: 64
+  n_workers: 72
+  # false -> normal behaviour (create the store if missing, resume filling it up to N_sims otherwise).
+  # true  -> grow the EXISTING store at this run's store_path to the new,larger N_sims 
+  add_extra_sims: false
+
+
+ANALYSIS_VARIANTS:
+  # Modifications applied to the data AFTER the simulation store has been generated 
+  # Different train_<N> runs against the same store can use different ANALYSIS_VARIANTS settings.
+  SCALE CUTS:
+    SHE_SHE: 1500   # ell_max for WL spectra
+    POS_SHE: 750    # ell_max for GGL cross-spectra
+    POS_POS: 750    # ell_max for GCph spectra
+  # false -> use the store's original noise samples as-is.
+  # true  -> discard them and draw N_sims fresh noise realizations from the
+  #          current CLOELIB_SETTINGS.covmat (Lfid) instead.
+  regenerate_noise_samples: false
+  # Which probes to train on, applied after SCALE CUTS:
+  #   3x2pt -> WL + GGL + GCph
+  #   2x2pt -> GGL + GCph
+  #   WL    -> WL only 
+  train_on_data: 3x2pt
+
+
+PCA:
+  # false -> reuse a cached basis: PCA.SVD if already present, or copied in
+  # from another train_<N>'s SVD.npy if pca_file is set.
+  recompute_pca: true
+  # Only used when recompute_pca is false: another train_<N>'s SVD.npy to
+  # reuse; leave unset to load this train_<N>'s own (must already exist).
+  # pca_file: /path/to/output/run_name/train_<N>/aux_files/SVD.npy
+  q: 500          # max number of components kept
+  variance_cut: 0.001   # min percent variance a component must explain to be kept
+
+
+NETWORK:
+  # Architecture settings — hidden_feat_compress/num_feat_param control the
+  # compression MLP; num_blocks_ratios/hidden_feat_ratios/dropout_ratios
+  # configure swyft's own ratio-estimator network.
+  hidden_feat_compress: [2048, 512]   # compression-MLP hidden-layer sizes
+  num_feat_param: 1     # compressed features kept per inferred parameter
+  num_blocks_ratios: 4
+  hidden_feat_ratios: 64
+  dropout_ratios: 0.1
+
+
+TRAINING:
+  learning_rate: 5.0e-4
+  batch_size: 256
+  num_workers: 3       # DataLoader worker processes
+  max_epochs: -1       # -1 = unlimited, rely on early_stopping
+  early_stopping: 5    # patience, in epochs, on val_loss
+  val_fraction: 0.2
+  accelerator: auto   # auto-detect GPU/CPU
+  # Train on only the first frac*N_sims simulations in the store, useful for testing.
+  train_on_frac: 1.0
+  # Which parameters the network is trained to produce posteriors/ratios for —
+  # group name from PARAM_GROUPS or an explicit list e.g. [H0, A_IA, eta_IA].
+  # Must be a subset of the parameters varied in PRIORS
+  params_to_infer: COSMO
+
+
+PLOTTING:
+  # Optional: overlay a nested-sampling chain on corner plots via getdist.
+  # null = no overlay. Expects a .npz with a 0-d object array "chain" (a dict
+  # of {param_name: samples}, keyed by the underlying physics names — see
+  # params.MCMC_KEY_MAP) and "weights" holding LOG nested-sampling weights.
+  mcmc_path: null
+  # swyft.plot_corner/get_pdf smoothing and bin count for Merlin's density
+  # estimate in corner plots (--smooth/--bins on merlin-plot override these).
+  smooth_swyft: 1.0
+  nbins_swyft: 100
