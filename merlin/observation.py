@@ -91,3 +91,29 @@ def generate_observation(config):
     print(f"Saved Lfid to             {lfid_path}")
 
     return obs, obs_chol, Lfid
+
+
+def generate_observation_for_fiducial(config):
+    """
+    Build a raw observation dict (same shape as generate_observation's
+    `obs` return, including "derived" if CLOELIB_SETTINGS.add_derived is
+    set) from config["FIDUCIAL"] as given -- never writes to
+    OBSERVATION.OBS/OBS_CHOLESKY/LFID. For a one-off evaluation of an
+    already-trained checkpoint at a different fiducial cosmology (see
+    merlin-plot's PLOTTING.eval_fiducial / --fiducial-override, which call
+    this with a config whose FIDUCIAL has already been merged with the
+    override). No check that the override stays inside the trained prior
+    box -- results are only meaningful if it does (NRE is amortized over
+    the training distribution).
+
+    Requires MOCK_OBS.generate_from_fiducial: true; there's no fiducial
+    cosmology to override when evaluating fixed/real data.
+    """
+    if not config.get("MOCK_OBS", {}).get("generate_from_fiducial", True):
+        raise ValueError(
+            "PLOTTING.eval_fiducial / --fiducial-override requires "
+            "MOCK_OBS.generate_from_fiducial: true -- there's no fiducial "
+            "cosmology to override when evaluating fixed/real data."
+        )
+    sim = build_simulator(config)
+    return sim.generate_observation()

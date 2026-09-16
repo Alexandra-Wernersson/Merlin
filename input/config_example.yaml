@@ -231,8 +231,12 @@ CLOELIB_SETTINGS:
   add_derived: null
   # Needs use_Fisher_priors: true and add_derived set. true -> during
   # merlin-simulate, reject/redraw candidates whose derived quantities fall
-  # outside fiducial +/- 7*sigma_Fisher; false (default) = unchanged.
+  # outside fiducial +/- sigma_scale_derived*sigma_Fisher; false (default)
+  # = unchanged.
   restrict_prior_for_derived: false
+  # N-sigma half-width of the derived-quantity rejection box above (and its
+  # corner-plot axis range) -- independent of PRIORS.sigma_scale.
+  sigma_scale_derived: 7.0
 
 
 SIMULATION:
@@ -310,5 +314,8 @@ PLOTTING:
   mcmc_path: null
   # swyft.plot_corner/get_pdf smoothing and bin count for Merlin's density
   # estimate in corner plots (--smooth/--bins on merlin-plot override these).
-  smooth_swyft: 1.0
+  smooth_swyft: 2.0
   nbins_swyft: 100
+  # Optional: {param_name: value} FIDUCIAL overrides for corner-mode
+  # evaluation (--fiducial-override overrides this). null = unused.
+  eval_fiducial: null

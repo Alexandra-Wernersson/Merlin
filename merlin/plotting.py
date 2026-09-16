@@ -11,6 +11,7 @@ from .priors import (
 )
 from .io import load_array
 from .network import Network
+from .observation import generate_observation_for_fiducial
 from .inference import load_network_from_checkpoint, predict_from_checkpoint
 from .preprocessing import preprocess, preprocess_obs
 from .coverage import run_coverage_test
@@ -145,7 +146,7 @@ def mcmc_samples_for(param_names, chain_dict, weights):
     return MCSamples(samples=samples, weights=weights, names=mcmc_keys, labels=labels)
 
 
-def plot_corner_mode(config, output_path, smooth=None, bins=None):
+def plot_corner_mode(config, output_path, smooth=None, bins=None, fiducial_override=None):
     """
     Corner plot of every TRAINING.params_to_infer parameter (LaTeX labels from
     params.PARAM_LABELS, fiducial truth lines from FIDUCIAL), evaluated on
@@ -155,6 +156,14 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
         swyft.plot_corner and get_pdf (higher smooth = smoother). Default to
         config["PLOTTING"]["smooth_swyft"]/["nbins_swyft"] (1.0/100 if
         unset); pass explicitly to override for a one-off plot.
+
+    fiducial_override : optional {param_name: value} dict. When set (or
+        when PLOTTING.eval_fiducial is set in config and this arg is None),
+        evaluates the checkpoint against a freshly-generated observation at
+        FIDUCIAL merged with these overrides, instead of the train_<N>'s own
+        saved mock observation -- see observation.generate_observation_for_fiducial.
+        Truth lines/axvlines use the overridden fiducial too. Results are
+        only meaningful if the override stays inside the trained prior box.
 
     If PLOTTING.mcmc_path is set, overlays that nested-sampling chain (see
     load_mcmc_overlay) — every TRAINING.params_to_infer parameter must have
@@ -173,16 +182,26 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
         smooth = plotting_cfg.get("smooth_swyft", 1.0)
     if bins is None:
         bins = plotting_cfg.get("nbins_swyft", 100)
+    if fiducial_override is None:
+        fiducial_override = plotting_cfg.get("eval_fiducial")
+
+    active_config = config
+    if fiducial_override:
+        active_config = {**config, "FIDUCIAL": {**config["FIDUCIAL"], **fiducial_override}}
 
     param_names, param_indices = resolve_inference_params(config)
-    fiducial, _, _, _ = resolve_priors(config)
+    fiducial, _, _, _ = resolve_priors(active_config)
     n_params = len(fiducial)
     N_plot = len(param_names)
     marginals = Network._get_marginals(N_plot)
 
     V_proj = load_array(config["PCA"]["SVD"])
     Lfid   = np.load(config["OBSERVATION"]["LFID"])
-    obs    = np.load(config["OBSERVATION"]["OBS"], allow_pickle=True).item()
+    if fiducial_override:
+        print(f"Evaluating at overridden fiducial: {fiducial_override}")
+        obs = generate_observation_for_fiducial(active_config)
+    else:
+        obs = np.load(config["OBSERVATION"]["OBS"], allow_pickle=True).item()
     obs_sample = preprocess_obs(obs, Lfid, config=config)
 
     # Truth/axvline value per inferred parameter: PARAMS-space indices
@@ -245,8 +264,8 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     # bounds; a plain Normal gets mean +/- N*sigma instead. Derived-space
     # parameters (sigma8/Omega_m/S8) have no prior object: if
     # restrict_prior_for_derived was active for this store, its rows are
-    # already confined to fiducial +/- DERIVED_REJECTION_SIGMA_SCALE*sigma_Fisher
-    # (see simulator._sample_z_derived_rejection), so that's the correct,
+    # already confined to fiducial +/- CLOELIB_SETTINGS.sigma_scale_derived*
+    # sigma_Fisher (see simulator._sample_z_derived_rejection), so that's the correct,
     # non-circular range to show -- using the posterior's own spread here
     # would just reproduce whatever the network happened to learn on already-
     # restricted training data. Otherwise (unrestricted store), swyft's own
@@ -259,12 +278,24 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     if restrict_derived:
         derived_plot_names = [param_names[i] for i, idx in enumerate(param_indices) if idx >= n_params]
         derived_sigma, derived_fid = load_derived_fisher_sigmas(config["PRIORS"]["finv_file"], derived_plot_names)
+        sigma_scale_derived = config["CLOELIB_SETTINGS"].get(
+            "sigma_scale_derived", DERIVED_REJECTION_SIGMA_SCALE)
+    # PLOTTING.derived_axis_ranges: optional {param_name: [lo, hi]} override
+    # for derived-space (sigma8/Omega_m/S8) axis ranges, taking precedence
+    # over both the restrict_prior_for_derived and auto weighted-quantile
+    # cases below -- lets a fixed range be pinned across runs/train_<N>s
+    # (e.g. matching a wider-posterior run) rather than each plot
+    # auto-scaling to its own, possibly narrower, posterior spread.
+    fixed_derived_ranges = plotting_cfg.get("derived_axis_ranges", {})
     prior_ranges = {}
     for i, idx in enumerate(param_indices):
         if idx >= n_params:
-            if restrict_derived:
-                name = param_names[i]
-                half_width = DERIVED_REJECTION_SIGMA_SCALE * derived_sigma[name]
+            name = param_names[i]
+            if name in fixed_derived_ranges:
+                lo, hi = fixed_derived_ranges[name]
+                prior_ranges[i] = (lo, hi)
+            elif restrict_derived:
+                half_width = sigma_scale_derived * derived_sigma[name]
                 prior_ranges[i] = (derived_fid[name] - half_width, derived_fid[name] + half_width)
             else:
                 v, w = get_weighted_samples(predictions, parnames[i])
@@ -355,8 +386,11 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
             Line2D([0], [0], color=color_merlin, linewidth=4, linestyle="-"),
             Line2D([0], [0], color=color_mcmc, linewidth=4, linestyle="-"),
         ]
-        # Same adaptive fontsize as label_fontsize/fontsize_tick above.
-        legend_fontsize = max(20, 20 * N_plot / 5)
+        # Same adaptive scaling as label_fontsize/fontsize_tick above, but
+        # with a lower floor -- small triangle plots (e.g. 2-3 derived
+        # params) should get a smaller legend than the N_plot=5 size, just
+        # not shrunk all the way down proportionally (unreadable at N_plot=2).
+        legend_fontsize = max(12, 20 * N_plot / 5)
         axes[0, N_plot - 1].legend(
             legend_lines, ["Merlin", "Nautilus"], loc="upper right",
             fontsize=legend_fontsize, frameon=False,
@@ -367,12 +401,16 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None):
     plt.close(fig)
 
 
-def plot_coverage_mode(config, output_path, n_test=1000):
+def plot_coverage_mode(config, output_path, n_test=1000, n_cols=None):
     """
     Coverage/calibration plot for the best checkpoint in
     STORES.checkpoint_path, evaluated against the last n_test simulations in
     the store. Delegates to coverage.run_coverage_test so this stays
     identical to interactive/notebook use.
+
+    n_cols : optional panel-grid column count override (default: up to 5,
+        see run_coverage_test), e.g. to avoid a sparsely-filled last row for
+        a specific parameter count.
 
     Slices the raw store down to the last n_test simulations before
     whitening, and reuses the checkpoint's own trained V_proj
@@ -398,7 +436,7 @@ def plot_coverage_mode(config, output_path, n_test=1000):
         enable_progress_bar=False,
     )
 
-    run_coverage_test(trainer, network, store_samples, config, output_path, n_test=n_test)
+    run_coverage_test(trainer, network, store_samples, config, output_path, n_test=n_test, n_cols=n_cols)
 
 
 def plot_loss_mode(config, output_path):

@@ -63,10 +63,7 @@ def train(store_samples, V_proj, config, num_workers=0, extra_callbacks=None):
     network : Network
     trainer : swyft.SwyftTrainer
     """
-    N_sims    = len(store_samples["noise"])
-    N_total   = store_samples["noise"].shape[1]
-    Nbin_ell  = config.get("Nbin_ell", 32)
-    N_spectra = N_total // Nbin_ell
+    N_sims = len(store_samples["noise"])
 
     network_cfg = config.get("NETWORK", {})
     _, param_indices = resolve_inference_params(config)
@@ -83,7 +80,7 @@ def train(store_samples, V_proj, config, num_workers=0, extra_callbacks=None):
         hidden_feat_ratios=network_cfg.get("hidden_feat_ratios", 64),
     )
 
-    resampler = make_resampler(store_samples, N_sims, N_spectra, Nbin_ell)
+    resampler = make_resampler(store_samples, N_sims, config)
 
     dm = swyft.SwyftDataModule(
         store_samples,

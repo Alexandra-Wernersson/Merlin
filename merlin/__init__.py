@@ -37,13 +37,16 @@ from .preprocessing import (
     make_resampler,
     make_scale_cut_mask,
     select_data_probes,
+    combined_keep_indices,
+    compute_cut_lfid,
+    kept_segments,
 )
 from .io import save_predictions, load_predictions, load_file
 from .network import Network
 from .train import train
 from .inference import infer, predict_from_checkpoint, load_network_from_checkpoint
 from .simulate import simulate
-from .observation import generate_observation
+from .observation import generate_observation, generate_observation_for_fiducial
 from .fisher import run_fisher
 from .coverage import run_coverage_test
 from .plotting import (

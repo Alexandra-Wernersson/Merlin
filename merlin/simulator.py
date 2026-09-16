@@ -11,6 +11,7 @@ from .io import load_array
 from .params import ZS, N_COSMO, NUISANCE_KEYS, resolve_derived_names, resolve_derived_box_names
 from .priors import (
     resolve_priors, apply_fisher_bounds, load_fisher_sigmas, load_derived_fisher_box,
+    DERIVED_REJECTION_SIGMA_SCALE,
 )
 from .tracers import load_dndz, get_position_tracer, get_shear_tracer
 
@@ -387,7 +388,10 @@ def build_simulator(config):
     derived_box = None
     if use_fisher and config["CLOELIB_SETTINGS"].get("restrict_prior_for_derived", False) and derived_names:
         box_names = resolve_derived_box_names(derived_names)
-        derived_box = load_derived_fisher_box(config["PRIORS"]["finv_file"], box_names)
+        sigma_scale_derived = config["CLOELIB_SETTINGS"].get(
+            "sigma_scale_derived", DERIVED_REJECTION_SIGMA_SCALE)
+        derived_box = load_derived_fisher_box(
+            config["PRIORS"]["finv_file"], box_names, scale=sigma_scale_derived)
 
     return Simulator(
         fiducial=fiducial, covmat=covmat, n_bins=n_bins,

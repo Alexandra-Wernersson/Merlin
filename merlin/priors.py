@@ -154,8 +154,10 @@ def load_fisher_sigmas(finv_file, varied_indices, varied_names):
     return np.sqrt(np.diag(Finv))
 
 
-# Hardcoded for now (independent of PRIORS.sigma_scale, which only governs
-# the COSMO-param box) -- see CLOELIB_SETTINGS.restrict_prior_for_derived.
+# Default for CLOELIB_SETTINGS.sigma_scale_derived (independent of
+# PRIORS.sigma_scale, which only governs the COSMO-param box) -- see
+# CLOELIB_SETTINGS.restrict_prior_for_derived. Used when the config key is
+# unset, and as the fallback for any direct/programmatic caller.
 DERIVED_REJECTION_SIGMA_SCALE = 7.0
 
 

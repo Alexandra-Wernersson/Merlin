@@ -7,7 +7,7 @@ from .simulator import build_simulator
 
 
 def run_coverage_test(trainer, network, store_samples, config, output_path,
-                       n_prior=10_000, n_test=1000):
+                       n_prior=10_000, n_test=1000, n_cols=None):
     """
     Run swyft's built-in coverage/calibration test and save a zz-plot
     (nominal vs. empirical credibility) per inferred parameter to
@@ -48,10 +48,12 @@ def run_coverage_test(trainer, network, store_samples, config, output_path,
 
     # Wrap into rows of up to 5 panels — a single row gets unreadably
     # squeezed past ~5 parameters (e.g. 13 shear-calibration m_i's).
+    # n_cols overrides this default (e.g. to avoid a sparsely-filled last
+    # row for a specific N_plot, such as 4/4/3 instead of 5/5/1 at N_plot=11).
     N_plot  = len(param_indices)
-    n_cols  = min(N_plot, 5)
+    n_cols  = n_cols or min(N_plot, 5)
     n_rows  = -(-N_plot // n_cols)  # ceil division
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 4.0 * n_rows), sharex=True, sharey=True)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3.4 * n_rows), sharex=True, sharey=True)
     axes = axes.reshape(n_rows, n_cols) if N_plot > 1 else [[axes]]
 
     for i in range(N_plot):
