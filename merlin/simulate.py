@@ -76,7 +76,9 @@ def simulate(config):
     second, tighter Fisher box over the derived quantities themselves (see
     simulator.Simulator._sample_z_derived_rejection) -- as many candidate
     cosmologies as needed are generated to fill the store with N_sims
-    *accepted* rows; the total generated/accepted counts are logged at the end.
+    *accepted* rows; the generated/accepted counts logged at the end count
+    real emulator calls (the cost driver), not candidates a cheap prefilter
+    skipped before reaching the emulator.
     """
     store_path = config["SIMULATION"]["store_path"]
     run_id     = config["SIMULATION"].get("run_id", "run")
@@ -112,6 +114,13 @@ def simulate(config):
 
     _log("Building simulator")
     sim = build_simulator(config)
+
+    if sim.derived_box:
+        # Calibrate here (main process) before joblib forks workers, so it
+        # happens once total, not once per worker.
+        _log("Calibrating derived-rejection prefilter...")
+        sim._ensure_derived_prefilter()
+
     shapes, dtypes = sim.get_shapes_and_dtypes()
 
     store = swyft.ZarrStore(store_path)
