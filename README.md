@@ -1,3 +1,6 @@
+![Merlin logo](merlin_logo.png)
+<sub>*Logo designed by Sofía Franco Oñate*</sub>
+
 # Merlin
 
 Simulation-based inference (SBI) pipeline for Euclid 3x2pt cosmology. Trains a
