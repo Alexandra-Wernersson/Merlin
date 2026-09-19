@@ -333,7 +333,7 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None, fiducial_overr
             merlin_peak = axes[i, i].lines[0].get_ydata().max()
             if ys.max() > 0:
                 ys = ys / ys.max() * merlin_peak
-            axes[i, i].plot(xs, ys, color=color_mcmc, lw=2.0)
+            axes[i, i].plot(xs, ys, color=color_mcmc, lw=3.0, linestyle="dashed")
             axes[i, i].set_xlim(xlims[i])
             axes[i, i].set_ylim(ylims_diag[i][0], merlin_peak * 1.15)
         for i, j in marginals:
@@ -350,7 +350,7 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None, fiducial_overr
             # transpose to match meshgrid's (ny, nx) convention.
             ZZ = density2d(xs, ys, grid=True).T
             levels = sorted(density2d.getContourLevels([0.68, 0.95]))
-            axes[j, i].contour(XX, YY, ZZ, levels=levels, colors=color_mcmc, linewidths=2.0)
+            axes[j, i].contour(XX, YY, ZZ, levels=levels, colors=color_mcmc, linewidths=3.0, linestyles="dashed")
             axes[j, i].set_xlim(xlims_off[(j, i)])
             axes[j, i].set_ylim(ylims_off[(j, i)])
 
@@ -384,7 +384,7 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None, fiducial_overr
         from matplotlib.lines import Line2D
         legend_lines = [
             Line2D([0], [0], color=color_merlin, linewidth=4, linestyle="-"),
-            Line2D([0], [0], color=color_mcmc, linewidth=4, linestyle="-"),
+            Line2D([0], [0], color=color_mcmc, linewidth=4, linestyle="dashed"),
         ]
         # Same adaptive scaling as label_fontsize/fontsize_tick above, but
         # with a lower floor -- small triangle plots (e.g. 2-3 derived

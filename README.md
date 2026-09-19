@@ -1,10 +1,7 @@
 ![Merlin logo](merlin_logo.png)
 <sub>*Logo designed by Sofía Franco Oñate*</sub>
 
-# Merlin
-
-Simulation-based inference (SBI) pipeline for Euclid 3x2pt cosmology. Trains a
-neural network (via `swyft`'s neural ratio estimation) to infer posteriors on
+Merlin is a simulation-based inference (SBI) pipeline for Euclid 3x2pt cosmology. It trains a neural network (via `swyft`'s neural ratio estimation) to infer posteriors on
 cosmological + nuisance parameters from weak-lensing / galaxy-clustering
 angular power spectra ($C_\ell$), instead of running a traditional MCMC
 likelihood analysis.
