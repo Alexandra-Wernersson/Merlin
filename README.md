@@ -38,14 +38,14 @@ Generate simulations with the following command:
 ```
 merlin-simulate my_config.yaml
 ```
-If `PRIORS.use_Fisher_priors: true`, this runs a Fisher analysis first and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, which is used to restrict the prior bounds. Then it generates simulations and saves them to a Zarr store at `RUN.run_dir/store`. If `CLOELIB_SETTINGS.restrict_prior_for_derived: true`, a rejection sampling is applied to the cosmological parameters in order to zoom around the derived-parameter (e.g. `sigma8`) region. Finally, it saves a copy of the config used for simulation at `RUN.run_dir/config.yaml`.
+If `PRIORS.use_Fisher_priors: true`, this runs a Fisher analysis first and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, which is used to restrict the prior bounds. Then it generates simulations and saves them to a Zarr store at `RUN.run_dir/store`. If `CLOELIB_SETTINGS.restrict_prior_for_derived: true`, a rejection sampling is applied to the cosmological parameters in order to zoom around the region relevant for derived parameters (e.g. `sigma8`).
 
 #### Step 3: Train the network and run inference
 Once simulations are generated, you can train via:
 ```
 merlin-train my_config.yaml
 ```
-This creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`) and saves a copy of the config used for training at `train_<N>/config.yaml`. In particular, it generates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA — projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. 
+This creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`,...). In particular, it generates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA — projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. 
 
 #### Step 4: Plot
 If you already have a trained run, you can go straight to plotting:
