@@ -37,7 +37,7 @@ Copy `input/config_example.yaml` and edit it — its comments explain what each 
 ```
 merlin-simulate my_config.yaml
 ```
-If `PRIORS.use_Fisher_priors: true`, this runs a Fisher analysis first and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, which is used to restrict the prior bounds. Then it generates simulations and saves them to a Zarr store at `RUN.run_dir/store` -- optionally rejection-sampled to a derived-parameter region via `CLOELIB_SETTINGS.restrict_prior_for_derived`. For a large `N_sims`, it's recommended to submit this as a batch job (see "Running on a cluster" below). Finally, it saves a copy of the config used for simulation at `RUN.run_dir/config.yaml`.
+If `PRIORS.use_Fisher_priors: true`, this runs a Fisher analysis first and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, which is used to restrict the prior bounds. Then it generates simulations and saves them to a Zarr store at `RUN.run_dir/store`. If `CLOELIB_SETTINGS.restrict_prior_for_derived: true`, a rejection sampling is applied to the cosmological parameters in order to zoom around the derived-parameter (e.g. `sigma8`) region. For a large `N_sims`, it is recommended to submit this as a batch job (see "Running on a cluster" below). Finally, it saves a copy of the config used for simulation at `RUN.run_dir/config.yaml`.
 
 #### Step 3: Train the network and run inference
 ```
