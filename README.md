@@ -2,7 +2,7 @@
 <sub>*Logo designed by Sofía Franco Oñate*</sub>
 
 Merlin is a simulation-based inference (SBI) package
-to perform cosmological + nuisance parameter estimation with 3x2pt angular power spectrum measurements from Stage IV surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions. 
+for cosmological + nuisance parameter estimation with 3x2pt measurements from Stage IV surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions. 
 
 ## Installation
 
@@ -30,65 +30,33 @@ console scripts.
 
 ## Usage
 
-### Step 1: Setup the config file
-Copy `input/config_example.yaml` and edit it — its inline comments explain
-what each section does. `RUN.run_dir` is the only path you need to set by
-hand; everything else is auto-derived under it (see "Output directory
-layout").
+#### Step 1: Setup the config file
+Copy `input/config_example.yaml` and edit it — its comments explain what each section does. `RUN.run_dir` is the only path you need to set by hand; everything else is derived from it (see "Output directory layout").
 
-### Step 2: Generate simulations
+#### Step 2: Generate simulations
 ```
 merlin-simulate my_config.yaml
 ```
-If `PRIORS.use_Fisher_priors: true`, runs a Fisher analysis first (a no-op
-otherwise) and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, used
-to set the bounds of `uniform`-type priors — Fisher only ever feeds prior
-bounds for this simulation step, so it's run here rather than as a separate
-command. Then generates simulations and saves them to a Zarr store at
-`RUN.run_dir/store` -- optionally rejection-sampled to a derived-parameter
-region via `CLOELIB_SETTINGS.restrict_prior_for_derived`. For a large `N_sims`, submit this as a batch job (see
-"Running on a cluster" below) rather than running it interactively. Drops a
-copy of the config used at `RUN.run_dir/config.yaml`.
+If `PRIORS.use_Fisher_priors: true`, this runs a Fisher analysis first and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, which is used to restrict the prior bounds. Then it generates simulations and saves them to a Zarr store at `RUN.run_dir/store` -- optionally rejection-sampled to a derived-parameter region via `CLOELIB_SETTINGS.restrict_prior_for_derived`. For a large `N_sims`, it's recommended to submit this as a batch job (see "Running on a cluster" below). Finally, it saves a copy of the config used for simulation at `RUN.run_dir/config.yaml`.
 
-### Step 3: Train the network and run inference
+#### Step 3: Train the network and run inference
 ```
 merlin-train my_config.yaml
 ```
-Creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`, ... — never
-reuses or overwrites one) and drops a copy of the config used at
-`train_<N>/config.yaml`. Generates the fiducial observation fresh into it
+It creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`, ... — never reuses or overwrites one) and saves a copy of the config used for training at `train_<N>/config.yaml`. It generates the mock observation from the fiducial
 (per `MOCK_OBS`/`FIDUCIAL`), preprocesses the store (Cholesky
-whitening, scale cuts, probe selection, PCA — projection saved to
-`train_<N>/aux_files/SVD.npy`), trains the network, and runs inference on
-that observation. Since preprocessing/the observation are both regenerated
-fresh on every run, you can change the network architecture,
-`ANALYSIS_VARIANTS`, or `MOCK_OBS`/`FIDUCIAL` and re-run `merlin-train` to get a
-new `train_<N>` against the *same* simulations — no need to re-run
-`merlin-simulate`. The best checkpoint (by validation loss) is saved to
-`train_<N>/best.ckpt` — no predictions are saved to disk; reload
-the checkpoint later to get predictions without retraining.
+whitening, scale cuts, probe selection, PCA — projection saved to `train_<N>/aux_files/SVD.npy`), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. The best checkpoint of the trained network (by validation loss) is saved to `train_<N>/best.ckpt`.
 
-### Step 4: Plot
+#### Step 4: Plot
 ```
 merlin-plot my_config.yaml --mode corner   --train-id N   # triangle plot of params_to_infer, vs. mock obs
 merlin-plot my_config.yaml --mode coverage --train-id N   # coverage/calibration test
 merlin-plot my_config.yaml --mode loss     --train-id N   # train/val loss vs. epoch, from the csv logs
 ```
-`--train-id` (always required — a deliberate choice, so you never
-accidentally plot a stale run) picks which `train_<N>/` to plot. Each mode
-loads that run's checkpoint (`corner`/`coverage`) or csv logs (`loss`) and
-saves a PDF to `train_<N>/plots/<mode>.pdf` (`corner_eval_fiducial.pdf`
-instead if `--fiducial-override`/`PLOTTING.eval_fiducial` is used). Meant
-for a quick look, not a cluster job. Other flags: `--smooth`/`--bins`
-(corner), `--cols` (coverage), `--fiducial-override` (corner, evaluate at a
-different fiducial). Set `PLOTTING.mcmc_path` in the config to overlay a
-nested-sampling (e.g. Nautilus) chain on the `corner` plot — `null` (the
-default) skips it.
+`--train-id` picks which `train_<N>/` to plot. Each mode
+loads that run's checkpoint (`corner`/`coverage`) or csv logs (`loss`) and saves a PDF to `train_<N>/plots/<mode>.pdf` (`corner_eval_fiducial.pdf` instead if `--fiducial-override`/`PLOTTING.eval_fiducial` is used). Other flags: `--smooth`/`--bins` (corner), `--cols` (coverage), `--fiducial-override` (corner, evaluate at a different fiducial). Set `PLOTTING.mcmc_path` in the config to overlay a nested-sampling (e.g. Nautilus) chain on the `corner` plot.
 
-For an interactive corner plot with additional observation diagnostics, open
-`notebooks/corner_plot.ipynb` instead (set `TRAIN_ID` there the same way).
-See `notebooks/pipeline_walkthrough.ipynb` for an interactive, step-by-step
-tour of the rest of the pipeline.
+For an interactive corner plot with additional observation diagnostics, open `notebooks/corner_plot.ipynb` instead (set `TRAIN_ID` there the same way). See `notebooks/pipeline_walkthrough.ipynb` for an interactive, step-by-step tour of the rest of the pipeline.
 
 ## Running on a cluster
 
