@@ -45,7 +45,7 @@ Once simulations are generated, you can train via:
 ```
 merlin-train my_config.yaml
 ```
-It creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`) and saves a copy of the config used for training at `train_<N>/config.yaml`. It generates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA — projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. The best checkpoint of the trained network (by validation loss) is saved to `train_<N>/best.ckpt`.
+This creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`) and saves a copy of the config used for training at `train_<N>/config.yaml`. In particular, itgenerates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA — projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. The best checkpoint of the trained network (by validation loss) is saved to `train_<N>/best.ckpt`.
 
 #### Step 4: Plot
 If you already have a trained run, you can go straight to plotting:
@@ -54,7 +54,7 @@ merlin-plot my_config.yaml --mode corner   --train-id N   # triangle plot of par
 merlin-plot my_config.yaml --mode coverage --train-id N   # coverage test
 merlin-plot my_config.yaml --mode loss     --train-id N   # train/val loss vs. epoch, from the csv logs
 ```
-`--train-id` picks which `train_<N>/` to plot. Each mode loads that run's checkpoint or csv logs and saves a PDF to `train_<N>/plots/<mode>.pdf` (`corner_eval_fiducial.pdf` instead if `PLOTTING.eval_fiducial` is used). Other flags for plotting: `--smooth`/`--bins` (corner), `--cols` (coverage), `--fiducial-override` (corner, evaluate at a different fiducial). Set `PLOTTING.mcmc_path` in the config to overlay a nested-sampling (e.g. Nautilus) chain on the `corner` plot.
+Here `--train-id` picks which `train_<N>/` to plot. Each mode loads that run's checkpoint or csv logs and saves a PDF to `train_<N>/plots/<mode>.pdf` (`corner_eval_fiducial.pdf` instead if `PLOTTING.eval_fiducial` is used). Other useful flags for plotting: `--smooth`/`--bins` (corner), `--cols` (coverage), `--fiducial-override` (corner, evaluate at a different fiducial). Set `PLOTTING.mcmc_path` in the config to overlay a nested-sampling run on the `corner` plot.
 
 For an interactive corner plot with additional observation diagnostics, open `notebooks/corner_plot.ipynb` instead. See `notebooks/pipeline_walkthrough.ipynb` for an interactive, step-by-step tour of the rest of the pipeline.
 
@@ -69,11 +69,10 @@ You will likely need to adapt the #SBATCH headers and module/environment setup t
 
 ## Output directory layout
 
-Two scopes, populated at different times: `RUN.run_dir` itself holds what's
-*shared* across every training run (written once by `merlin-simulate`);
+The path `RUN.run_dir` holds what's *shared* across every training run (written once by `merlin-simulate`);
 `train_<N>/` holds what's specific to one `merlin-train` run — kept separate
-because retraining can vary independently of the simulations (architecture,
-scale cuts, even a different observation to evaluate against).
+because retraining can vary independently of the simulations (e.g. different architecture,
+multiple analysis variants, or even a different observation to evaluate against).
 
 ```
 <run_dir>/
