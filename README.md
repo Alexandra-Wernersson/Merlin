@@ -2,13 +2,15 @@
 <sub>*Logo designed by Sofía Franco Oñate*</sub>
 
 Merlin is a simulation-based inference (SBI) package
-to perform cosmological + nuisance parameter estimation using 3x2pt angular power spectrum measurements from Stage IV photometric surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions. 
+to perform cosmological + nuisance parameter estimation with 3x2pt angular power spectrum measurements from Stage IV surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions. 
 
 ## Installation
 
+The package requires Python ≥ 3.9. All dependencies are declared in `pyproject.toml` and installed automatically, except for `cloelib` (see below). A GPU is recommended for training but not required.
+
 ### 1. Install `cloelib` first
 `cloelib` must be installed manually from source before installing Merlin:
-```
+```bash
 git clone https://github.com/cloe-org/cloelib.git
 pip install ./cloelib          # or `pip install -e ./cloelib` for an editable install
 ```
@@ -17,7 +19,9 @@ pip install ./cloelib          # or `pip install -e ./cloelib` for an editable i
 The rest of the dependencies (`numpy`, `torch`, `scipy`, `joblib`, `psutil`,
 `matplotlib`, `zarr`, `swyft`, `pytorch-lightning`, `euclidlib`, `getdist`,
 `pandas`) are installed automatically:
-```
+```bash
+git clone https://github.com/Alexandra-Wernersson/merlin.git
+cd merlin
 pip install .          # or `pip install -e .` for an editable install
 ```
 
