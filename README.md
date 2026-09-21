@@ -45,7 +45,7 @@ Once simulations are generated, you can train via:
 ```
 merlin-train my_config.yaml
 ```
-This creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`) and saves a copy of the config used for training at `train_<N>/config.yaml`. In particular, itgenerates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA — projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. The best checkpoint of the trained network (by validation loss) is saved to `train_<N>/best.ckpt`.
+This creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`) and saves a copy of the config used for training at `train_<N>/config.yaml`. In particular, it generates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA — projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. The best checkpoint of the trained network (by validation loss) is saved to `train_<N>/best.ckpt`.
 
 #### Step 4: Plot
 If you already have a trained run, you can go straight to plotting:
