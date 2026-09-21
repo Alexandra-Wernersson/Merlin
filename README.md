@@ -69,10 +69,9 @@ You will likely need to adapt the #SBATCH headers and module/environment setup t
 
 ## Output directory layout
 
-The path `RUN.run_dir` holds what's *shared* across every training run (written once by `merlin-simulate`);
-`train_<N>/` holds what's specific to one `merlin-train` run — kept separate
-because retraining can vary independently of the simulations (e.g. different architecture,
-multiple analysis variants, or even a different observation to evaluate against).
+The path `RUN.run_dir` holds what's *shared* across every training run (written once by `merlin-simulate`), while the sub-folders
+`train_<N>/` hold what's specific to one `merlin-train` run. These are kept separate because retraining can vary independently of 
+the simulations (e.g. different architecture, multiple analysis variants, or even a different observation to evaluate against).
 
 ```
 <run_dir>/
@@ -96,5 +95,5 @@ multiple analysis variants, or even a different observation to evaluate against)
     └── ...
 ```
 
-Predictions are never saved to disk — they're cheap to recompute from a
+Predictions are never saved to disk, they're cheap to recompute from a
 saved checkpoint whenever needed (`predict_from_checkpoint`).
