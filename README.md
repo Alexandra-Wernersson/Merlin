@@ -1,13 +1,8 @@
 ![Merlin logo](merlin_logo.png)
 <sub>*Logo designed by Sofía Franco Oñate*</sub>
 
-Merlin is a simulation-based inference (SBI) pipeline for Euclid 3x2pt cosmology. It trains a neural network (via `swyft`'s neural ratio estimation) to infer posteriors on
-cosmological + nuisance parameters from weak-lensing / galaxy-clustering
-angular power spectra ($C_\ell$), instead of running a traditional MCMC
-likelihood analysis.
-
-Built on `swyft`, `cloelib` (Euclid cosmology library), `euclidlib`,
-`pytorch-lightning`, `getdist`.
+Merlin is a simulation-based inference (SBI) package
+to perform cosmological + nuisance parameter estimation using 3x2pt angular power spectrum measurements from Stage IV photometric surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions. 
 
 ## Installation
 
