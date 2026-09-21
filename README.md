@@ -94,6 +94,3 @@ the simulations (e.g. different architecture, multiple analysis variants, or eve
 └── train_<N>/
     └── ...
 ```
-
-Predictions are never saved to disk, they're cheap to recompute from a
-saved checkpoint whenever needed (`predict_from_checkpoint`).
