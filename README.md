@@ -8,7 +8,7 @@ to perform cosmological + nuisance parameter estimation with 3x2pt angular power
 
 The package requires Python ≥ 3.9. All dependencies are declared in `pyproject.toml` and installed automatically, except for `cloelib` (see below). A GPU is recommended for training but not required.
 
-#### 1. Install `cloelib` first
+#### 1. Install cloelib first
 `cloelib` must be installed manually from source before installing Merlin:
 ```bash
 git clone https://github.com/cloe-org/cloelib.git
@@ -26,7 +26,7 @@ pip install .          # or `pip install -e .` for an editable install
 ```
 
 This also registers the `merlin-simulate`, `merlin-train`, and `merlin-plot`
-console scripts (see `pyproject.toml`).
+console scripts.
 
 ## Usage
 
@@ -45,7 +45,8 @@ otherwise) and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, used
 to set the bounds of `uniform`-type priors — Fisher only ever feeds prior
 bounds for this simulation step, so it's run here rather than as a separate
 command. Then generates simulations and saves them to a Zarr store at
-`RUN.run_dir/store`. For a large `N_sims`, submit this as a batch job (see
+`RUN.run_dir/store` -- optionally rejection-sampled to a derived-parameter
+region via `CLOELIB_SETTINGS.restrict_prior_for_derived`. For a large `N_sims`, submit this as a batch job (see
 "Running on a cluster" below) rather than running it interactively. Drops a
 copy of the config used at `RUN.run_dir/config.yaml`.
 
@@ -76,8 +77,11 @@ merlin-plot my_config.yaml --mode loss     --train-id N   # train/val loss vs. e
 `--train-id` (always required — a deliberate choice, so you never
 accidentally plot a stale run) picks which `train_<N>/` to plot. Each mode
 loads that run's checkpoint (`corner`/`coverage`) or csv logs (`loss`) and
-saves a PDF to `train_<N>/plots/<mode>.pdf`. Meant for a quick look, not a
-cluster job. Set `PLOTTING.mcmc_path` in the config to overlay a
+saves a PDF to `train_<N>/plots/<mode>.pdf` (`corner_eval_fiducial.pdf`
+instead if `--fiducial-override`/`PLOTTING.eval_fiducial` is used). Meant
+for a quick look, not a cluster job. Other flags: `--smooth`/`--bins`
+(corner), `--cols` (coverage), `--fiducial-override` (corner, evaluate at a
+different fiducial). Set `PLOTTING.mcmc_path` in the config to overlay a
 nested-sampling (e.g. Nautilus) chain on the `corner` plot — `null` (the
 default) skips it.
 
@@ -88,21 +92,14 @@ tour of the rest of the pipeline.
 
 ## Running on a cluster
 
-`jobs/` has example SLURM batch scripts for Snellius-like clusters, covering
-Steps 2 and 3 above (Step 4, `merlin-plot`, is meant for a quick interactive
-look, not a batch job):
+`jobs/` has example SLURM batch scripts, covering Steps 2 and 3 above (Step 4, `merlin-plot`, is meant for a quick interactive look):
 ```
 sbatch jobs/submit_simulate.sh [path/to/config.yaml]   # CPU-only, --cpus-per-task should match SIMULATION.n_workers
 sbatch jobs/submit_train.sh    [path/to/config.yaml]   # 1 GPU
 ```
-Both default to `input/config_example.yaml` if no config is given. These are
-examples tuned for Snellius specifically — on a different cluster you'll
-likely need to adapt the `#SBATCH` preamble too (partition names, `--gpus`
-syntax, per-node CPU/GPU counts, etc.), not just the environment-activation
-lines (`module load`/`conda activate`) near the bottom, which you'll almost
-certainly need to change to however you actually activate merlin's
-environment. Each script's header comments explain its resource choices in
-more detail.
+Both default to `input/config_example.yaml` if no config is given. You will likely need to adapt the #SBATCH headers and module/environment setup to your cluster.
+
+
 
 ## Output directory layout
 
