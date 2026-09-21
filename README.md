@@ -40,7 +40,7 @@ merlin-simulate my_config.yaml
 ```
 If `PRIORS.use_Fisher_priors: true`, this runs a Fisher analysis first and saves the inverse Fisher matrix to `RUN.run_dir/finv.npz`, which is used to restrict the prior bounds. Then it generates simulations and saves them to a Zarr store at `RUN.run_dir/store`. If `CLOELIB_SETTINGS.restrict_prior_for_derived: true`, a rejection sampling is applied to the cosmological parameters in order to zoom around the region relevant for derived parameters (e.g. `sigma8`).
 
-#### Step 3: Train the network and run inference
+#### Step 3: Train the networks
 Once simulations are generated, you can train via:
 ```
 merlin-train my_config.yaml
