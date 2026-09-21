@@ -8,14 +8,14 @@ to perform cosmological + nuisance parameter estimation with 3x2pt angular power
 
 The package requires Python ≥ 3.9. All dependencies are declared in `pyproject.toml` and installed automatically, except for `cloelib` (see below). A GPU is recommended for training but not required.
 
-### 1. Install `cloelib` first
+#### 1. Install `cloelib` first
 `cloelib` must be installed manually from source before installing Merlin:
 ```bash
 git clone https://github.com/cloe-org/cloelib.git
 pip install ./cloelib          # or `pip install -e ./cloelib` for an editable install
 ```
 
-### 2. Install the remaining dependencies and Merlin
+#### 2. Install the remaining dependencies and Merlin
 The rest of the dependencies (`numpy`, `torch`, `scipy`, `joblib`, `psutil`,
 `matplotlib`, `zarr`, `swyft`, `pytorch-lightning`, `euclidlib`, `getdist`,
 `pandas`) are installed automatically:
