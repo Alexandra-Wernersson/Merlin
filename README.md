@@ -1,6 +1,8 @@
 ![Merlin logo](merlin_logo.png)
 <sub>*Logo designed by Sofía Franco Oñate*</sub>
 
+[![arXiv](https://img.shields.io/badge/arXiv-2609.24946-b31b1b.svg)](https://arxiv.org/abs/2609.24946)
+
 Merlin is a simulation-based inference (SBI) package
 for cosmological + nuisance parameter estimation with 3x2pt measurements from Stage IV surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions. You can read the associated Merlin paper here: https://arxiv.org/abs/2609.24946
 
