@@ -1,10 +1,11 @@
 ![Merlin logo](merlin_logo.png)
 <sub>*Logo designed by Sofía Franco Oñate*</sub>
 
+[![version](https://img.shields.io/badge/version-0.0.1-blue)](https://github.com/Alexandra-Wernersson/merlin)
 [![arXiv](https://img.shields.io/badge/arXiv-2609.24946-b31b1b.svg)](https://arxiv.org/abs/2609.24946)
 
 Merlin is a simulation-based inference (SBI) package
-for cosmological + nuisance parameter estimation with 3x2pt measurements from Stage IV surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions. You can read the associated Merlin paper here: https://arxiv.org/abs/2609.24946
+for cosmological + nuisance parameter estimation with 3x2pt measurements from Stage IV surveys. It is built on top of the [swyft](https://github.com/undark-lab/swyft) code to perform Marginal Neural Ratio Estimation (MNRE) and the [cloelib](https://github.com/cloe-org/cloelib) library for the 3x2pt theory predictions.
 
 ## Installation
 
@@ -47,7 +48,7 @@ Once simulations are generated, you can train via:
 ```
 merlin-train my_config.yaml
 ```
-This creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`,...). In particular, it generates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA — projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. 
+This creates the next `RUN.run_dir/train_<N>/` (`train_1`, `train_2`,...). In particular, it generates the mock observation from the fiducial, preprocesses the store (Cholesky whitening, PCA projection, scale cuts, probe selection, noise regeneration), trains the network, and runs inference on that observation. Because preprocessing happens fresh every time you call `merlin-train`, changing the network architecture or `ANALYSIS_VARIANTS` doesn't require new simulations — just re-run `merlin-train` to get a new `train_<N>` from the *same* store. 
 
 #### Step 4: Plot
 If you already have a trained run, you can go straight to plotting:
@@ -69,11 +70,10 @@ sbatch jobs/submit_train.sh    [path/to/config.yaml]   # 1 GPU
 ```
 You will likely need to adapt the #SBATCH headers and module/environment setup to your cluster.
 
-## Output directory layout
+## Output directory
 
-The path `RUN.run_dir` holds what's *shared* across every training run (written once by `merlin-simulate`), while the sub-folders
-`train_<N>/` hold what's specific to one `merlin-train` run. These are kept separate because retraining can vary independently of 
-the simulations (e.g. different architecture, multiple analysis variants, or even a different observation to evaluate against).
+The path `RUN.run_dir` contains what's *shared* across every training run (written once by `merlin-simulate`), while the sub-folders
+`train_<N>/` contain what's specific to one `merlin-train` run. These are kept separate because retraining can vary independently of the simulations (e.g. different architecture, multiple analysis variants, or even a different observation to evaluate against).
 
 ```
 <run_dir>/
@@ -96,3 +96,21 @@ the simulations (e.g. different architecture, multiple analysis variants, or eve
 └── train_<N>/
     └── ...
 ```
+
+## Credit
+
+If you use the Merlin package in your work, please cite the paper:
+
+```bibtex
+@article{Wernersson:2026pih,
+    author = "Wernersson, Alexandra and Franco-Abell{\'a}n, Guillermo and Ca{\~n}as-Herrera, Guadalupe",
+    title = "{Merlin: Fast and flexible 3x2pt cosmology with simulation-based inference}",
+    eprint = "2609.24946",
+    archivePrefix = "arXiv",
+    primaryClass = "astro-ph.CO",
+    month = "9",
+    year = "2026"
+}
+```
+
+Any questions or comments may be directed to g.francoabellan@ific.uv.es, canasherrera@strw.leidenuniv.nl or alewer97@gmail.com 
