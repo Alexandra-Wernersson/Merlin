@@ -55,30 +55,15 @@ def _check_growth_consistency(config, run_dir):
 
 def simulate(config):
     """
-    Fill a ZarrStore with simulations using parallel joblib workers.
+    Fill a ZarrStore with simulations using parallel joblib workers. Runs
+    Fisher first if PRIORS.use_Fisher_priors is set.
 
-    Runs fisher.run_fisher first if PRIORS.use_Fisher_priors is set (a no-op
-    otherwise), since Fisher only feeds prior bounds for this step.
+    add_extra_sims grows an existing store to N_sims instead of creating
+    one (raises if sizes/settings don't match -- see _check_growth_consistency).
 
-    Config keys: SIMULATION.store_path, N_sims, batch_size, chunk_size,
-    n_workers, add_extra_sims.
-
-    If SIMULATION.add_extra_sims is true, grows an existing store at
-    store_path to the new N_sims via ZarrStore.reset_length instead of
-    creating a new one. Raises ValueError if no store exists, N_sims isn't
-    strictly larger than the current length, or FIDUCIAL/PRIORS/
-    CLOELIB_SETTINGS differ from what produced the existing rows (see
-    _check_growth_consistency). Default false creates or resumes a store
-    up to N_sims.
-
-    If CLOELIB_SETTINGS.restrict_prior_for_derived is also set (with
-    add_derived non-empty), each row is drawn via rejection sampling on a
-    second, tighter Fisher box over the derived quantities themselves (see
-    simulator.Simulator._sample_z_derived_rejection) -- as many candidate
-    cosmologies as needed are generated to fill the store with N_sims
-    *accepted* rows; the generated/accepted counts logged at the end count
-    real emulator calls (the cost driver), not candidates a cheap prefilter
-    skipped before reaching the emulator.
+    If restrict_prior_for_derived is set, rows are rejection-sampled on the
+    derived quantities; logged counts are real emulator calls, not what a
+    cheap prefilter skipped.
     """
     store_path = config["SIMULATION"]["store_path"]
     run_id     = config["SIMULATION"].get("run_id", "run")

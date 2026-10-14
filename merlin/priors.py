@@ -198,28 +198,11 @@ def load_derived_fisher_box(finv_file, box_names, scale=DERIVED_REJECTION_SIGMA_
 
 def resolve_inference_params(config):
     """
-    Resolve config["TRAINING"]["params_to_infer"] (default "COSMO") to
-    (names, indices), validated against the varied parameter set from
-    resolve_priors(config).
-
-    Names resolve against PARAMS first, then against this config's own
-    CLOELIB_SETTINGS.add_derived subset (sigma8/Omega_m/S8 — computed, not
-    sampled) — not the full params.DERIVED_PARAMS registry, since a store's
-    "derived" array only has as many columns as its own add_derived asked
-    for, at positions matching that subset's order, not DERIVED_PARAMS's
-    canonical positions. Indices are returned in a concatenated index space
-    so network.py can gather from torch.cat([z, derived], dim=-1) directly:
-    PARAMS-space indices are unchanged; derived-space indices are offset by
-    len(PARAMS), ordered per this config's add_derived. This is the single
-    source of truth for that offset convention.
-
-    Raises
-    ------
-    ValueError — a resolved PARAMS-space name is marked fixed in PRIORS
-    (nothing to infer over a fixed value; doesn't apply to derived names,
-    which have no PRIORS entry to be fixed relative to).
-    ValueError — a resolved name is in neither PARAMS nor this config's
-    CLOELIB_SETTINGS.add_derived.
+    Resolve TRAINING.params_to_infer (default "COSMO") to (names, indices),
+    checked against PARAMS and this config's CLOELIB_SETTINGS.add_derived.
+    Derived-space indices are offset by len(PARAMS) (for
+    torch.cat([z, derived], dim=-1)). Raises if a name is fixed in PRIORS
+    or unknown.
     """
     _, _, varied_names, _ = resolve_priors(config)
     varied_set = set(varied_names)

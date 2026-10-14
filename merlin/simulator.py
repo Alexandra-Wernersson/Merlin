@@ -55,14 +55,10 @@ class _Constant:
 
 class _TruncatedNormalRejection:
     """
-    Normal(mean, sigma) restricted to [lower, upper] (see
-    priors.apply_fisher_bounds, used when PRIORS.use_Fisher_priors narrows
-    m_i/D_i-style nuisance parameters to fiducial +/- sigma_scale*sigma_Fisher).
-    Duck-types torch.distributions .sample(shape) like _Constant.
-
-    Uses rejection sampling (draw untruncated Normal, discard outside
-    bounds) rather than scipy.stats.truncnorm's inverse-CDF, which produces
-    systematically overconfident/biased trained posteriors here despite
+    Normal(mean, sigma) truncated to [lower, upper] (see
+    priors.apply_fisher_bounds). Duck-types torch.distributions .sample(shape)
+    like _Constant. Uses rejection sampling, not scipy.stats.truncnorm's
+    inverse-CDF, which produced biased trained posteriors here despite
     targeting the same distribution.
     """
 
@@ -115,16 +111,10 @@ class PriorSampler:
 
 def sample_correlated_noise(Lfid, shape=()):
     """
-    Draw correlated Gaussian noise realization(s) with covariance
-    Lfid @ Lfid.T.
-
-    shape=() (default): a single n_data-length vector, randn(n_data) @
-    Lfid.T (equivalent to Lfid @ randn(n_data) for a 1D vector). Used by
-    Simulator.get_sample_noise, one draw per graph.node call.
-    shape=(n,): a batch of n draws via one vectorized matmul, shape
-    (n, n_data) — used by preprocessing.preprocess's
-    ANALYSIS_VARIANTS.regenerate_noise_samples. Both call sites share this
-    function so batched regeneration matches the simulator's own draw exactly.
+    Draw correlated Gaussian noise with covariance Lfid @ Lfid.T.
+    shape=(): single draw (Simulator.get_sample_noise). shape=(n,): batched
+    draws (preprocessing.preprocess's regenerate_noise_samples) -- shared so
+    both match the simulator's own distribution exactly.
     """
     z = np.random.normal(size=(*shape, Lfid.shape[0]))
     return z @ Lfid.T
@@ -390,31 +380,13 @@ class Simulator(swyft.Simulator):
     def _sample_z_derived_rejection(self):
         """
         z-node callback used instead of self.sample_z when self.derived_box
-        is set (CLOELIB_SETTINGS.restrict_prior_for_derived): draws a
-        candidate from the same Fisher-uniform COSMO box as always. A
-        cheap prefilter (see _ensure_derived_prefilter) may reject it
-        without calling the real emulator; self._n_generated only counts
-        candidates that reach the real _background_perturbations call
-        below (prefiltered ones are tracked separately in
-        self._n_prefiltered).
-
-        Otherwise, computes real derived quantities via
-        _background_perturbations/_compute_derived -- stopping short of
-        Cls/tracers/AngularTwoPoint, the whole point -- and accepts only if
-        every quantity in self.derived_box falls inside its (lo, hi). On
-        rejection, discards and redraws a fresh z (including nuisance
-        params) from scratch.
-
-        Caches the accepted z's background/perturbations/nuisance/derived
-        values as instance attributes so get_sample_Cls, invoked next on
-        this exact z object, reuses them via `is` identity instead of
-        recomputing. Only ever called with shape=() (one row at a time, per
-        the swyft graph's per-sample call pattern) -- not the batched
-        inference-time sample_z(shape=(n,)) path.
-
-        Raises RuntimeError after _MAX_CONSECUTIVE_REJECTIONS straight
-        rejections (prefiltered or real) for one row with no acceptance
-        (see that constant).
+        is set. A cheap prefilter may reject a candidate without calling the
+        real emulator (self._n_prefiltered); otherwise computes real derived
+        quantities and accepts only if all fall inside derived_box, else
+        redraws z from scratch. Caches the accepted z's
+        background/perturbations/derived values for get_sample_Cls to reuse
+        via `is` identity. Raises RuntimeError after
+        _MAX_CONSECUTIVE_REJECTIONS with no acceptance.
         """
         self._ensure_derived_prefilter()
         consecutive_rejections = 0
@@ -476,15 +448,11 @@ def build_simulator(config):
     """
     Construct a Simulator from a loaded YAML config dict.
 
-    If config["PRIORS"]["use_Fisher_priors"] is true, loads the Fisher matrix
-    from fisher.run_fisher (config["PRIORS"]["finv_file"] must already exist —
-    see observation.generate_observation) and narrows every varied
-    parameter's support to fiducial +/- sigma_scale*sigma: "uniform"
-    parameters get those bounds directly; "normal" parameters keep their
-    mean/sigma but get truncated to that window (PriorSampler/
-    _TruncatedNormalRejection). Concentrates simulation density where the
-    posterior actually has support. Raises via priors.load_fisher_sigmas if
-    finv_file is missing or stale relative to the current PRIORS fixed/varied set.
+    If PRIORS.use_Fisher_priors is true, narrows every varied parameter's
+    support to fiducial +/- sigma_scale*sigma from finv.npz ("uniform" gets
+    those bounds directly, "normal" gets truncated), concentrating
+    simulations where the posterior has support. Raises if finv_file is
+    missing/stale (priors.load_fisher_sigmas).
     """
     fiducial, specs, varied_names, varied_indices = resolve_priors(config)
 

@@ -50,25 +50,12 @@ def make_scale_cut_mask(config):
 
 def select_data_probes(config):
     """
-    Integer index array selecting which entries of the flattened 3x2pt data
-    vector to keep, per config["ANALYSIS_VARIANTS"]["train_on_data"]:
-      "3x2pt" (default) -> everything; returns None (no-op).
-      "2x2pt"           -> GGL + GCph only (drops WL/shear-shear).
-      "WL"              -> WL only.
-
-    Unlike make_scale_cut_mask (a soft 0/1 mask, fixed length), this is a
-    real selection meant for np.take(..., axis=-1): it shrinks the data
-    vector fed into PCA/the network, to train on a strict subset of probes
-    (analogous to TRAINING.params_to_infer for parameters).
-
-    Data vector order: [WL (SHE-SHE)][GGL (POS-SHE)][GCph (POS-POS)].
-
-    Note: "2x2pt" here is this project's own convention (GGL+GCph), not the
-    literature convention of GCph auto + WL auto without their cross-term.
-
-    Returns
-    -------
-    idx : np.ndarray of int, or None for "3x2pt"
+    Index array selecting which entries of the flattened 3x2pt data vector
+    to keep, per ANALYSIS_VARIANTS.train_on_data ("3x2pt"=all -> None,
+    "2x2pt"=GGL+GCph, "WL"=WL only). Unlike make_scale_cut_mask (a soft,
+    fixed-length mask), this shrinks the vector via np.take(..., axis=-1).
+    Note: "2x2pt" here means GGL+GCph, not the literature GCph+WL-auto
+    convention.
     """
     mode = config.get("ANALYSIS_VARIANTS", {}).get("train_on_data", "3x2pt")
     if mode == "3x2pt":
@@ -106,21 +93,13 @@ def _n_data(config):
 
 def combined_keep_indices(config):
     """
-    Sorted int array of data-vector indices surviving BOTH
-    ANALYSIS_VARIANTS.SCALE CUTS and .train_on_data, or None if neither
-    restricts anything (equivalent to keeping the full vector).
+    Sorted indices surviving both SCALE CUTS and train_on_data, or None if
+    neither restricts anything.
 
-    Both need to be resolved together, and BEFORE whitening (see
-    compute_cut_lfid/apply_cholesky) rather than the vector being whitened
-    in full and then zeroed/selected afterward: Cholesky whitening (L^-1 @
-    data) is a triangular mixing transform, so a later kept entry's
-    whitened value already depends on the raw value of any earlier entry
-    -- cut or not. Zeroing entries post-whitening doesn't cleanly remove
-    their contribution, and doesn't re-normalize the surviving entries for
-    the covariance sub-block they actually now represent. Cutting the raw
-    vector first and whitening with the Cholesky factor of the
-    correctly-conditioned covariance sub-block is the statistically
-    correct order.
+    Must be applied to the raw vector before whitening (see
+    compute_cut_lfid/apply_cholesky), not after: Cholesky whitening mixes
+    entries via a triangular transform, so cutting post-whitening wouldn't
+    cleanly remove/renormalize for the dropped entries.
     """
     variants = config.get("ANALYSIS_VARIANTS", {})
     n_data = _n_data(config)
@@ -152,15 +131,9 @@ def compute_cut_lfid(config, keep_idx):
 
 def kept_segments(config):
     """
-    [(n_blocks, block_size), ...] describing the kept data vector's block
-    structure, in order over whichever of [WL, GGL, GCph] survive
-    ANALYSIS_VARIANTS.train_on_data -- block_size = surviving ell count for
-    that probe type under SCALE CUTS (uniform within a probe type, but not
-    necessarily across types, since each has its own lmax), n_blocks =
-    that type's tomographic-pair count. sum(n_blocks*block_size) equals
-    the kept vector's actual length (matches combined_keep_indices), used
-    by make_resampler to reshape/shuffle noise blocks correctly whether or
-    not cuts are active.
+    [(n_blocks, block_size), ...] per surviving probe type (WL/GGL/GCph)
+    under train_on_data, block_size = surviving ell count under SCALE CUTS.
+    Used by make_resampler to reshape/shuffle noise blocks correctly.
     """
     variants = config.get("ANALYSIS_VARIANTS", {})
     mode = variants.get("train_on_data", "3x2pt")
@@ -217,16 +190,11 @@ def load_or_precompute_cholesky(store, Lfid, cache_dir):
 
 def load_or_compute_pca(Cells_chol, config):
     """
-    Compute or load PCA projection matrix.
-
-    config["PCA"]["recompute_pca"] controls the behaviour:
-    - true: recompute from Cells_chol, save to PCA.SVD (train_<N>/aux_files/SVD.npy).
-    - false, PCA.pca_file set: copy that file to PCA.SVD, then load it — reuse
-      a PCA already computed for another train_<N> against the same store
-      (valid only if nothing affecting the basis, e.g. ANALYSIS_VARIANTS or
-      PCA.q/variance_cut, differs). Keeps each train_<N>'s own SVD.npy
-      self-contained rather than pointing elsewhere.
-    - false, PCA.pca_file unset: load directly from PCA.SVD (must exist).
+    Compute or load the PCA projection matrix, per PCA.recompute_pca:
+    - true: recompute from Cells_chol, save to PCA.SVD.
+    - false + pca_file set: copy that file to PCA.SVD, then load it (reuse
+      another train_<N>'s PCA -- valid only if nothing affecting the basis differs).
+    - false + pca_file unset: load directly from PCA.SVD (must exist).
     """
     pca_cfg  = config["PCA"]
     pca_file = pca_cfg["SVD"]
@@ -264,30 +232,18 @@ def load_or_compute_pca(Cells_chol, config):
 
 def preprocess(store, Lfid, config):
     """
-    Cholesky-whiten simulations, apply scale cuts, select which 3x2pt probes
-    to keep, compute PCA — all controlled by config["ANALYSIS_VARIANTS"] and
-    applied here (not baked into the store) so different train_<N> runs
-    against the same store can vary them independently without re-simulating.
+    Cholesky-whiten simulations, apply scale cuts/probe selection, compute
+    PCA -- all from config["ANALYSIS_VARIANTS"], applied here (not baked
+    into the store) so different train_<N> runs can vary them independently.
 
-    ANALYSIS_VARIANTS.train_on_data ("3x2pt"/"2x2pt"/"WL", default "3x2pt")
-    and SCALE CUTS are combined into one set of surviving indices and cut
-    from the RAW data vector before whitening (see
-    combined_keep_indices/compute_cut_lfid) — the statistically correct
-    order, rather than whitening the full vector and zeroing/selecting
-    afterward.
+    Cuts are applied to the raw vector before whitening (see
+    combined_keep_indices/compute_cut_lfid) -- the statistically correct order.
 
-    If ANALYSIS_VARIANTS.regenerate_noise_samples is true, the store's noise
-    is discarded and redrawn from the current Lfid (may differ from the
-    covmat active at simulation time), e.g. to retrain against a different
-    noise covariance without re-running the expensive C_ells physics. Not
-    persisted — cheap to redo, and reproducible from Lfid. Uses
-    simulator.sample_correlated_noise (same function Simulator.get_sample_noise
-    calls) so the distribution matches the simulator's exactly.
+    If regenerate_noise_samples is true, noise is redrawn from the current
+    Lfid instead of the store's own (e.g. to retrain against a different
+    covmat without re-running the C_ells physics).
 
-    Returns
-    -------
-    store_samples : swyft.Samples
-    V_proj : np.ndarray
+    Returns (store_samples, V_proj).
     """
     variants = config.get("ANALYSIS_VARIANTS", {})
     print(f"Training on {variants.get('train_on_data', '3x2pt')} data")
