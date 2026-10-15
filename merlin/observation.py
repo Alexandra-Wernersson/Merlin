@@ -8,24 +8,20 @@ from .simulator import build_simulator
 def generate_observation(config):
     """
     Obtain an observation, apply Cholesky whitening, and save all outputs
-    defined in config.
+    defined in config. Safe to call repeatedly — always writes fresh to the
+    train_<N>-scoped OBSERVATION.OBS/OBS_CHOLESKY/LFID paths.
 
     If config["PRIORS"]["use_Fisher_priors"] is true, finv_file must already
-    exist (built by fisher.run_fisher); this function only reads it via
-    build_simulator, never recomputes it. Safe to call repeatedly (e.g. once
-    per merlin-train run) — always writes fresh to the train_<N>-scoped
-    OBSERVATION.OBS/OBS_CHOLESKY/LFID paths.
+    exist (built by fisher.run_fisher).
 
     config["MOCK_OBS"] controls the source:
       - generate_from_fiducial: true (default) — simulate C_ells and noise
-        separately from the fiducial cosmology ("path" ignored). obs["z"]
-        holds the fiducial parameter vector; obs["noise"] is a real sampled
-        realization, folded into obs_chol only if add_noise_fid_obs is true
-        (default false, i.e. noiseless observation for inference).
+        from the fiducial cosmology ("path" ignored). obs["z"] holds the
+        fiducial parameter vector; obs["noise"] is folded into obs_chol only
+        if add_noise_fid_obs is true (default false).
       - generate_from_fiducial: false — load an already-noisy data vector
-        from the .npy array at "path" (e.g. real data with no clean/noise
-        split). obs has no "z"; "noise" is zero and the loaded array is
-        stored as "C_ells" directly. add_noise_fid_obs is ignored here.
+        from the .npy array at "path". obs has no "z"; "noise" is zero and
+        the loaded array is stored as "C_ells" directly.
 
     Returns
     -------
@@ -34,9 +30,7 @@ def generate_observation(config):
         generate_from_fiducial is true).
     obs_chol : dict
         Cholesky-whitened observation for inference (keys 'C_ells', 'noise';
-        'noise' is always zero, a placeholder). 'C_ells' includes noise
-        whenever there's nothing left to split out or add_noise_fid_obs
-        opted in, so it isn't always literally noiseless.
+        'noise' is always zero, a placeholder).
     Lfid : np.ndarray
         Cholesky factor of the fiducial covariance.
     """
@@ -97,17 +91,14 @@ def generate_observation_for_fiducial(config):
     """
     Build a raw observation dict (same shape as generate_observation's
     `obs` return, including "derived" if CLOELIB_SETTINGS.add_derived is
-    set) from config["FIDUCIAL"] as given -- never writes to
-    OBSERVATION.OBS/OBS_CHOLESKY/LFID. For a one-off evaluation of an
+    set) from config["FIDUCIAL"] as given, without writing to
+    OBSERVATION.OBS/OBS_CHOLESKY/LFID. Used for one-off evaluation of an
     already-trained checkpoint at a different fiducial cosmology (see
-    merlin-plot's PLOTTING.eval_fiducial / --fiducial-override, which call
-    this with a config whose FIDUCIAL has already been merged with the
-    override). No check that the override stays inside the trained prior
-    box -- results are only meaningful if it does (NRE is amortized over
-    the training distribution).
+    merlin-plot's PLOTTING.eval_fiducial / --fiducial-override). No check
+    that the override stays inside the trained prior box.
 
-    Requires MOCK_OBS.generate_from_fiducial: true; there's no fiducial
-    cosmology to override when evaluating fixed/real data.
+    Raises ValueError if MOCK_OBS.generate_from_fiducial is false -- there's
+    no fiducial cosmology to override when evaluating fixed/real data.
     """
     if not config.get("MOCK_OBS", {}).get("generate_from_fiducial", True):
         raise ValueError(

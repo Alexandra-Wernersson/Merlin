@@ -78,10 +78,7 @@ def populate_train_dir(config, config_path, train_id=None):
     subfolder, and point STORES.checkpoint_path/csv_logs/plots_dir,
     OBSERVATION.OBS/OBS_CHOLESKY/LFID, and PCA.SVD inside it. Must be called
     after load_config and before any training/observation/plotting call
-    that needs those paths -- unlike store_path/finv_file, load_config
-    can't populate them since it doesn't know if the call is meant to
-    create a new training run, target an existing one, or neither
-    (e.g. merlin-simulate).
+    that needs those paths.
 
     train_id=None: creates the next free train_<N> and copies config_path
     there as train_<N>/config.yaml. Returns the new train_id.

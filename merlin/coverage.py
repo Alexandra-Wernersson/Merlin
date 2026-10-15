@@ -11,24 +11,16 @@ def run_coverage_test(trainer, network, store_samples, config, output_path,
     """
     Run swyft's built-in coverage/calibration test and save a zz-plot
     (nominal vs. empirical credibility) per inferred parameter to
-    output_path.
-
-    Checks whether posterior credible intervals are correctly calibrated
-    (e.g. the true parameter should fall inside the 68% credible region
-    ~68% of the time) — a standard SBI diagnostic, since over/under-confident
-    posteriors are a known failure mode of neural ratio/posterior estimators.
+    output_path -- checks whether posterior credible intervals are
+    correctly calibrated (e.g. the true parameter should fall inside the
+    68% credible region ~68% of the time).
 
     The test set is the last `n_test` simulations in store_samples. Prior
-    samples for comparison are drawn from the same Simulator/PriorSampler as
-    training, to keep the comparison prior consistent across all parameters
-    (including Gaussian-distributed photo-z dimensions). If any inferred
-    parameter is derived (sigma8/Omega_m/S8), the prior samples instead
-    reuse the training store's own ("z", "derived") pairs — there's no
-    closed-form/independently-samplable prior for a deterministic,
-    correlated pushforward quantity like sigma8. Also forced whenever
-    CLOELIB_SETTINGS.restrict_prior_for_derived was active for this store
-    (sim.derived_box non-empty), even for COSMO-only param_names — see
-    inference.infer's identical guard for why.
+    samples are drawn from the same Simulator/PriorSampler as training. If
+    any inferred parameter is derived (sigma8/Omega_m/S8), or
+    CLOELIB_SETTINGS.restrict_prior_for_derived was active for this store,
+    the prior samples instead reuse the training store's own ("z",
+    "derived") pairs (see inference.infer's identical guard).
     """
     import matplotlib.pyplot as plt
 

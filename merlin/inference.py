@@ -11,14 +11,11 @@ def _derived_prior_samples(config, n_samples):
     Build prior_samples by reusing the training store's own simulated
     ("z", "derived") rows, rather than drawing fresh from sim.sample_z --
     sigma8/Omega_m/S8 have no closed-form prior (a deterministic pushforward
-    of the sampled cosmology, see Simulator._compute_derived), and
-    re-running cloelib per sample would take hours at n_samples=500_000.
+    of the sampled cosmology, see Simulator._compute_derived) and
+    re-running cloelib per sample is too slow at scale.
 
-    Reusing store rows preserves every z-derived correlation exactly, and is
-    at least as statistically valid as a fresh draw. Takes the first
-    min(n_samples, len(store)) rows (order doesn't matter, i.i.d.) -- note
-    this silently caps prior_samples below n_samples whenever the store
-    itself has fewer than n_samples rows.
+    Takes the first min(n_samples, len(store)) rows, so prior_samples is
+    silently capped below n_samples whenever the store has fewer rows.
 
     Raises
     ------
@@ -42,25 +39,17 @@ def infer(trainer, network, obs_sample, config, n_samples=500_000):
     """
     Run inference given a trained network and a Cholesky-whitened observation.
 
-    Prior samples are drawn from the same Simulator/PriorSampler used to
-    generate the training data (see simulator.build_simulator), so the
-    inference prior matches the simulation prior exactly for every
-    parameter, rather than re-deriving bounds by hand.
-
-    Uses sim.sample_z(shape=(n_samples,)) rather than
-    sim.sample(N=n_samples, targets=["z"]) -- the latter loops per-sample
-    (swyft's Simulator.sample does even for the cheap "z" root node) and
-    takes ~13 min at n_samples=500_000; sample_z is vectorized and takes
-    under a second. "z"/"derived" pairs are reused from the training store
-    instead (see _derived_prior_samples) whenever:
-    - any inferred parameter is derived (sigma8/Omega_m/S8) -- required,
-      these have no closed-form prior to draw fresh from;
+    Prior samples are drawn from the same Simulator/PriorSampler used for
+    training (see simulator.build_simulator) via the vectorized
+    sim.sample_z(shape=(n_samples,)), so the inference prior matches the
+    simulation prior for every parameter. "z"/"derived" pairs are reused
+    from the training store instead (see _derived_prior_samples) whenever:
+    - any inferred parameter is derived (sigma8/Omega_m/S8) -- these have no
+      closed-form prior to draw fresh from;
     - CLOELIB_SETTINGS.restrict_prior_for_derived was active for this store
-      (sim.derived_box non-empty), even for COSMO-only params_to_infer:
-      sample_z(shape=(n,)) draws from the *unrestricted* Fisher box (that
-      flag never touches PriorSampler itself, only simulate.py's rejection
-      loop), which would silently mismatch the network's actual training
-      distribution otherwise.
+      (sim.derived_box non-empty), even for COSMO-only params_to_infer --
+      sample_z otherwise draws from the unrestricted box, mismatching the
+      network's training distribution.
 
     Predictions are returned, not persisted -- cheap to recompute from a
     checkpoint (see predict_from_checkpoint).

@@ -5,25 +5,17 @@ import numpy as np
 from .io import format_duration, load_array
 from .params import PARAMS, N_COSMO, resolve_derived_names
 from .priors import resolve_priors
-from .simulator import Simulator
-from .tracers import load_dndz
+from .simulator import Simulator, load_dndz
 
 
 def run_fisher(config, eps=1e-2):
     """
     Compute the Fisher matrix via finite differences over every VARIED
     parameter in config["PRIORS"], add each "normal"-kind parameter's own
-    Gaussian-prior curvature, and save Finv to config["PRIORS"]["finv_file"]
-    as an .npz containing Finv, varied_indices, and varied_names (the latter
-    two let build_simulator/load_fisher_sigmas detect a stale Finv if
-    PRIORS's fixed/varied set changed since).
-
-    Finv is the inverse of the POSTERIOR (not just likelihood) Fisher matrix:
-    likelihood information (J^T Cinv J) plus each "normal"-kind parameter's
-    prior precision (1/sigma^2) on the diagonal — Laplace-approximating
-    likelihood x prior. Without the prior term, marginalizing over other
-    Gaussian-prior parameters overstates how freely they compensate a shift
-    in parameter a, inflating a's marginalized sigma.
+    Gaussian-prior precision (1/sigma^2) to the diagonal, and save Finv to
+    config["PRIORS"]["finv_file"] as an .npz containing Finv, varied_indices,
+    and varied_names (used by build_simulator/load_fisher_sigmas to detect a
+    stale Finv if PRIORS's fixed/varied set changed since).
 
     Parameters
     ----------
@@ -122,14 +114,12 @@ def _derived_fisher_sigmas(sim, fiducial, Finv, varied_names, derived_names, eps
     """
     Delta-method Fisher sigma for each of derived_names: sigma_d = sqrt(J^T
     @ Finv_cosmo @ J), J the central-difference Jacobian of the derived
-    quantity w.r.t. the 5 COSMO params at the fiducial point (same eps
-    convention as _finite_difference), Finv_cosmo the COSMO sub-block of
-    Finv (already the correctly marginalized covariance for that subset,
-    per the Fisher-submatrix property load_fisher_sigmas also relies on).
+    quantity w.r.t. the 5 COSMO params at the fiducial point, Finv_cosmo the
+    COSMO sub-block of Finv.
 
-    Calls sim._background_perturbations/_compute_derived as plain methods
-    (NOT through sim.sample()/the swyft graph, which would run the full
-    Cls/tracers/AngularTwoPoint pipeline for every extra evaluation).
+    Calls sim._background_perturbations/_compute_derived directly (not
+    sim.sample()/the swyft graph), to skip the full Cls/tracers pipeline for
+    every extra evaluation.
 
     Returns
     -------

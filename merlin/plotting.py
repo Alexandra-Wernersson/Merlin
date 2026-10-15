@@ -1,8 +1,11 @@
 import os
 import shutil
 
+import matplotlib.pyplot as plt
 import numpy as np
 import swyft
+import swyft.plot.plot as _swyft_plot_module
+from swyft.plot.plot import _get_HDI_thresholds, get_pdf as _swyft_get_pdf
 from torch.distributions import Normal, Uniform
 
 from .params import PARAM_LABELS, MCMC_KEY_MAP, resolve_derived_names
@@ -16,7 +19,6 @@ from .inference import load_network_from_checkpoint, predict_from_checkpoint
 from .preprocessing import preprocess, preprocess_obs
 from .coverage import run_coverage_test
 from .simulator import build_simulator, _TruncatedNormalRejection
-from .swyft_patches import apply_patches
 
 
 def setup_latex_style():
@@ -84,10 +86,9 @@ def _weighted_quantile_range(v, w, lo_q=0.001, hi_q=0.999, pad=0.3):
     """
     [lo_q, hi_q] weighted-quantile range of v under normalized weights w,
     padded by `pad` of its width. Used to zoom derived-parameter axes
-    (sigma8/Omega_m/S8) to where the posterior actually has support, since
-    they have no prior object to fall back on (see the PRIORS-bounds block
-    in plot_corner_mode) and swyft's own auto-range spans the full store,
-    not the posterior.
+    (sigma8/Omega_m/S8) to where the posterior has support, since they have
+    no prior object to set bounds from (see the PRIORS-bounds block in
+    plot_corner_mode).
     """
     order = np.argsort(v)
     v_sorted, w_sorted = v[order], w[order]
@@ -104,17 +105,13 @@ def load_mcmc_overlay(config):
 
     Returns (chain_dict, weights) or (None, None) if PLOTTING.mcmc_path is
     unset/null. chain_dict maps physics parameter names (params.MCMC_KEY_MAP
-    values) to 1d sample arrays; weights are linear (normalized to sum to 1),
-    converted from the file's log nested-sampling weights (no burn-in, unlike
-    MCMC chains).
+    values) to 1d sample arrays; weights are linear, normalized to sum to 1.
 
-    Expects a Nautilus-format .npz: a 0-d object array "chain" (.item() gives
-    the dict above) and a "weights" log-weight array. A sibling "derived"
-    0-d object array, if present (e.g. {"sigma8_0": array}), is merged into
-    the same dict so a derived params_to_infer entry overlays through the
-    same MCMC_KEY_MAP lookup as PARAMS-space names. Omega_m/S8, if requested
-    via CLOELIB_SETTINGS.add_derived, are computed from the chain itself
-    (see _add_mcmc_derived) since Nautilus never stored them directly.
+    Expects a Nautilus-format .npz: a 0-d object array "chain" and a
+    "weights" log-weight array. A sibling "derived" 0-d object array, if
+    present, is merged into chain_dict. Omega_m/S8, if requested via
+    CLOELIB_SETTINGS.add_derived, are computed from the chain itself (see
+    _add_mcmc_derived).
     """
     chain_path = config.get("PLOTTING", {}).get("mcmc_path")
     if not chain_path:
@@ -153,24 +150,20 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None, fiducial_overr
     the mock observation using the best checkpoint in STORES.checkpoint_path.
 
     smooth, bins : Gaussian-kernel smoothing and bin count passed to
-        swyft.plot_corner and get_pdf (higher smooth = smoother). Default to
-        config["PLOTTING"]["smooth_swyft"]/["nbins_swyft"] (1.0/100 if
-        unset); pass explicitly to override for a one-off plot.
+        swyft.plot_corner and get_pdf. Default to
+        config["PLOTTING"]["smooth_swyft"]/["nbins_swyft"] (1.0/100 if unset).
 
     fiducial_override : optional {param_name: value} dict. When set (or
         when PLOTTING.eval_fiducial is set in config and this arg is None),
         evaluates the checkpoint against a freshly-generated observation at
         FIDUCIAL merged with these overrides, instead of the train_<N>'s own
-        saved mock observation -- see observation.generate_observation_for_fiducial.
+        saved mock observation (see observation.generate_observation_for_fiducial).
         Truth lines/axvlines use the overridden fiducial too. Results are
         only meaningful if the override stays inside the trained prior box.
 
     If PLOTTING.mcmc_path is set, overlays that nested-sampling chain (see
     load_mcmc_overlay) — every TRAINING.params_to_infer parameter must have
-    an entry in params.MCMC_KEY_MAP and in the chain, or this raises
-    KeyError. Drawn from getdist density estimates plotted directly via
-    matplotlib rather than getdist's own plot_1d/plot_2d, which would inject
-    their own ticks/labels into the shared axes.
+    an entry in params.MCMC_KEY_MAP and in the chain, or this raises KeyError.
     """
     import matplotlib.pyplot as plt
 
@@ -256,22 +249,14 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None, fiducial_overr
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
-    # Force axis ranges to the configured PRIORS bounds (post-Fisher-overlay,
-    # what sim.sample_z actually drew from) rather than swyft's default
-    # auto-scaling to the posterior sample spread — which for Normal-type
-    # priors (e.g. m_i) can span far wider than where the marginal has
-    # support. Uniform and Fisher-truncated Normal priors use their exact
-    # bounds; a plain Normal gets mean +/- N*sigma instead. Derived-space
-    # parameters (sigma8/Omega_m/S8) have no prior object: if
-    # restrict_prior_for_derived was active for this store, its rows are
-    # already confined to fiducial +/- CLOELIB_SETTINGS.sigma_scale_derived*
-    # sigma_Fisher (see simulator._sample_z_derived_rejection), so that's the correct,
-    # non-circular range to show -- using the posterior's own spread here
-    # would just reproduce whatever the network happened to learn on already-
-    # restricted training data. Otherwise (unrestricted store), swyft's own
-    # auto-range spans the whole store, far wider than the posterior, so
-    # those axes are zoomed to a weighted-quantile range of the posterior
-    # samples themselves instead.
+    # Force axis ranges to the configured PRIORS bounds (what sim.sample_z
+    # drew from) rather than swyft's default auto-scaling to the posterior
+    # spread. Uniform and Fisher-truncated Normal priors use their exact
+    # bounds; a plain Normal gets mean +/- N*sigma. Derived-space parameters
+    # (sigma8/Omega_m/S8) have no prior object: if restrict_prior_for_derived
+    # was active, use fiducial +/- sigma_scale_derived*sigma_Fisher (see
+    # simulator._sample_z_derived_rejection); otherwise zoom to a
+    # weighted-quantile range of the posterior samples.
     NORMAL_RANGE_NSIGMA = 5
     sim = build_simulator(config)
     restrict_derived = config["CLOELIB_SETTINGS"].get("restrict_prior_for_derived", False)
@@ -282,10 +267,8 @@ def plot_corner_mode(config, output_path, smooth=None, bins=None, fiducial_overr
             "sigma_scale_derived", DERIVED_REJECTION_SIGMA_SCALE)
     # PLOTTING.derived_axis_ranges: optional {param_name: [lo, hi]} override
     # for derived-space (sigma8/Omega_m/S8) axis ranges, taking precedence
-    # over both the restrict_prior_for_derived and auto weighted-quantile
-    # cases below -- lets a fixed range be pinned across runs/train_<N>s
-    # (e.g. matching a wider-posterior run) rather than each plot
-    # auto-scaling to its own, possibly narrower, posterior spread.
+    # over the restrict_prior_for_derived and auto weighted-quantile cases
+    # below -- lets a fixed range be pinned across runs/train_<N>s.
     fixed_derived_ranges = plotting_cfg.get("derived_axis_ranges", {})
     prior_ranges = {}
     for i, idx in enumerate(param_indices):
@@ -405,17 +388,14 @@ def plot_coverage_mode(config, output_path, n_test=1000, n_cols=None):
     """
     Coverage/calibration plot for the best checkpoint in
     STORES.checkpoint_path, evaluated against the last n_test simulations in
-    the store. Delegates to coverage.run_coverage_test so this stays
-    identical to interactive/notebook use.
+    the store. Delegates to coverage.run_coverage_test.
 
     n_cols : optional panel-grid column count override (default: up to 5,
-        see run_coverage_test), e.g. to avoid a sparsely-filled last row for
-        a specific parameter count.
+        see run_coverage_test).
 
     Slices the raw store down to the last n_test simulations before
     whitening, and reuses the checkpoint's own trained V_proj
-    (recompute_pca forced off) rather than re-deriving PCA — whitening/PCA
-    over the full store would cost minutes and tens of GB for no benefit.
+    (recompute_pca forced off) rather than re-deriving PCA.
     """
     setup_latex_style()
 
@@ -477,3 +457,118 @@ def plot_loss_mode(config, output_path):
     plt.tight_layout()
     plt.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
+
+
+# ============================================================
+# swyft.plot_corner patches
+# ============================================================
+
+_applied = False
+_swyft_filled = False
+
+
+def set_swyft_filled(filled: bool):
+    global _swyft_filled
+    _swyft_filled = filled
+
+
+def _plot_2d(
+    lrs_coll,
+    parname1,
+    parname2,
+    ax=None,
+    bins=100,
+    color="k",
+    cmap="gray_r",
+    linewidth=1,
+    smooth=0.0,
+    cred_level=[0.68268, 0.95450, 0.99730],
+    truth=None,
+    smooth_prior=False,
+):
+    """
+    Drop-in replacement for swyft.plot.plot._plot_2d.
+
+    swyft's own version fills via a cmap and ignores the `color` arg on 2D
+    panels, so color="black" has no effect. This version restores
+    color-driven rendering: unfilled contour lines by default
+    (set_swyft_filled(True) to also shade the two inner regions), and a red
+    truth marker matching merlin's dashed-red fiducial lines.
+    """
+    counts, xy = _swyft_get_pdf(
+        lrs_coll,
+        [parname1, parname2],
+        bins=bins,
+        smooth=smooth,
+        smooth_prior=smooth_prior,
+    )
+    xbins = xy[:, 0]
+    ybins = xy[:, 1]
+
+    if ax is None:
+        ax = plt.gca()
+
+    levels = sorted(_get_HDI_thresholds(counts, cred_level=cred_level))
+    if _swyft_filled:
+        ax.contourf(
+            counts.T,
+            extent=[xbins.min(), xbins.max(), ybins.min(), ybins.max()],
+            levels=[levels[1], counts.max()],
+            colors=[color],
+            alpha=0.35,
+        )
+        ax.contourf(
+            counts.T,
+            extent=[xbins.min(), xbins.max(), ybins.min(), ybins.max()],
+            levels=[levels[2], counts.max()],
+            colors=[color],
+            alpha=0.35,
+        )
+    ax.contour(
+        counts.T,
+        extent=[xbins.min(), xbins.max(), ybins.min(), ybins.max()],
+        levels=levels[1:],
+        colors=color,
+        linewidths=linewidth,
+    )
+    ax.set_xlim([xbins.min(), xbins.max()])
+    ax.set_ylim([ybins.min(), ybins.max()])
+
+    if truth is not None:
+        if parname1 in truth.keys():
+            ax.axvline(truth[parname1], color="r", lw=1.5, zorder=10, ls=(1, (5, 1)))
+        if parname2 in truth.keys():
+            ax.axhline(truth[parname2], color="r", lw=1.5, zorder=10, ls=(1, (5, 1)))
+        if parname1 in truth.keys() and parname2 in truth.keys():
+            ax.scatter([truth[parname1]], [truth[parname2]], c="r", marker=".", s=100)
+
+
+def _contour1d(z, v, levels, ax=plt, linestyles=None, color=None, **kwargs):
+    """
+    Drop-in replacement for swyft.plot.plot._contour1d: fills only the two
+    inner credible levels, dropping the outermost band. Kept for portability
+    to older swyft versions that fill all three.
+    """
+    y0 = -1.0 * v.max()
+    y1 = 5.0 * v.max()
+    ax.fill_between(z, y0, y1, where=v >= levels[0], color=color, alpha=0.1)
+    ax.fill_between(z, y0, y1, where=v >= levels[1], color=color, alpha=0.1)
+
+
+def apply_patches():
+    """
+    Monkeypatch swyft.plot.plot to use the _plot_2d/_contour1d above.
+
+    swyft.plot_corner resolves these as bare names from swyft.plot.plot's
+    module globals at call time, so reassigning the module attributes here
+    redirects every later call site — no fork/reinstall needed. Call once
+    before plotting; afterwards always access via swyft.plot.plot._plot_2d
+    (module attribute), never `from swyft.plot.plot import _plot_2d`, which
+    would copy the pre-patch reference at import time.
+    """
+    global _applied
+    if _applied:
+        return
+    _swyft_plot_module._plot_2d = _plot_2d
+    _swyft_plot_module._contour1d = _contour1d
+    _applied = True

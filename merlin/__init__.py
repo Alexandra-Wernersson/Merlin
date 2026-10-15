@@ -22,12 +22,11 @@ from .params import (
     PARAM_GROUPS, PARAM_LABELS, MCMC_KEY_MAP, resolve_params, resolve_derived_names,
     resolve_derived_box_names,
 )
-from .tracers import load_dndz
 from .priors import (
     PriorSpec, resolve_priors, apply_fisher_bounds, load_fisher_sigmas,
     resolve_inference_params, load_derived_fisher_sigmas, load_derived_fisher_box,
 )
-from .simulator import Simulator, build_simulator, sample_correlated_noise
+from .simulator import Simulator, build_simulator, sample_correlated_noise, load_dndz
 from .preprocessing import (
     preprocess,
     preprocess_obs,
@@ -51,9 +50,8 @@ from .fisher import run_fisher
 from .coverage import run_coverage_test
 from .plotting import (
     setup_latex_style, plot_corner_mode, plot_coverage_mode, plot_loss_mode,
-    load_mcmc_overlay, mcmc_samples_for,
+    load_mcmc_overlay, mcmc_samples_for, apply_patches, set_swyft_filled,
 )
-from .swyft_patches import apply_patches, set_swyft_filled
 
 # Suppress jax/pytorch_lightning/lightning_fabric startup log chatter.
 # Must come AFTER the imports above: importing pytorch_lightning resets its logger to INFO.
