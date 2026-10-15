@@ -59,7 +59,7 @@ merlin-plot my_config.yaml --mode loss     --train-id N   # train/val loss vs. e
 ```
 Here `--train-id` picks which `train_<N>/` to plot. Each mode loads that run's checkpoint or csv logs and saves a PDF to `train_<N>/plots/<mode>.pdf` (`corner_eval_fiducial.pdf` instead if `PLOTTING.eval_fiducial` is used). Other useful flags for plotting: `--smooth`/`--bins` (corner), `--cols` (coverage), `--fiducial-override` (corner, evaluate at a different fiducial). Set `PLOTTING.mcmc_path` in the config to overlay a nested-sampling run on the `corner` plot.
 
-For an interactive corner plot with additional observation diagnostics, open `notebooks/corner_plot.ipynb` instead. See `notebooks/pipeline_walkthrough.ipynb` for an interactive, step-by-step tour of the rest of the pipeline.
+For an interactive corner plot, open `notebooks/corner_plot.ipynb` instead. See `notebooks/pipeline_walkthrough.ipynb` for a step-by-step tour of the rest of the pipeline.
 
 ## Running on a cluster
 
