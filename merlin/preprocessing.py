@@ -227,7 +227,7 @@ def load_or_compute_pca(Cells_chol, config):
 
 
 # ============================================================
-# Store preprocessing (formerly data.py)
+# Store preprocessing
 # ============================================================
 
 def preprocess(store, Lfid, config):
