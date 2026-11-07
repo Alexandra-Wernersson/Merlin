@@ -12,13 +12,14 @@ license = { text = "MIT" }
 dependencies = [
     "numpy",
     "torch",
-    "scipy",
+    "scipy<1.14",  # swyft 0.4.5 imports scipy.integrate.simps (removed in 1.14)
     "joblib",
     "psutil",
     "matplotlib",
-    "zarr",
+    "zarr<3",  # swyft.ZarrStore uses zarr.ProcessSynchronizer (removed in 3.0)
     "swyft>=0.4.5",
     "pytorch-lightning",
+    "setuptools<81",  # pytorch-lightning 1.x (required by swyft) imports pkg_resources
     "euclidlib",
     "cloelib",
     "getdist",
